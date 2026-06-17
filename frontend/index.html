@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>eMAR Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app-shell">
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+        <div class="sidebar-logo">
+            <span class="logo-mark">e</span>
+            <span class="logo-text">eMAR</span>
+        </div>
+
+        <nav class="sidebar-nav">
+            <button onclick="showPage('dashboardPage')" class="nav-item active-nav" id="nav-dashboard">
+                Dashboard
+            </button>
+            <button onclick="showPage('residentsPage')" class="nav-item" id="nav-residents">
+                Residents
+            </button>
+            <button onclick="showPage('medicationsPage')" class="nav-item" id="nav-meds">
+                Medications
+            </button>
+            <button onclick="showPage('marPage')" class="nav-item" id="nav-mar">
+                MAR Log
+            </button>
+        </nav>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+        <header class="top-bar">
+            <h1>eMAR Clinical Console</h1>
+            <div class="top-bar-right">
+                <span class="badge">Dark Mode</span>
+            </div>
+        </header>
+
+        <section id="dashboardPage" class="page">
+            <h2 class="page-title">Dashboard</h2>
+            <div class="grid">
+                <div class="card">
+                    <h3>Quick Stats</h3>
+                    <p>Monitor residents, medications, and MAR activity at a glance.</p>
+                </div>
+                <div class="card">
+                    <h3>Today’s Focus</h3>
+                    <p>Use the Residents and MAR sections to manage today’s passes.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="residentsPage" class="page" style="display:none;">
+            <div class="page-header-row">
+                <h2 class="page-title">Residents</h2>
+                <button class="primary-btn" onclick="openAddResidentModal()">Add Resident</button>
+            </div>
+
+            <div id="residentList" class="resident-grid">
+                <!-- Resident cards injected here -->
+            </div>
+        </section>
+
+        <section id="medicationsPage" class="page" style="display:none;">
+            <h2 class="page-title">Medications</h2>
+            <p class="muted">Select a resident from the Residents page to view and manage medications.</p>
+        </section>
+
+        <section id="marPage" class="page" style="display:none;">
+            <h2 class="page-title">MAR Log</h2>
+            <p class="muted">MAR entries are visible per resident in their profile.</p>
+        </section>
+
+        <!-- RESIDENT PROFILE PANEL -->
+        <section id="residentProfile" class="resident-profile" style="display:none;">
+            <div class="resident-header">
+                <img id="residentPhoto" class="resident-photo-large" src="https://via.placeholder.com/120">
+                <div class="resident-info">
+                    <h2 id="residentFullName"></h2>
+                    <p id="residentRoom"></p>
+                </div>
+            </div>
+
+            <div class="resident-tabs">
+                <button onclick="showResidentTab('medsTab')" class="active-tab">Medications</button>
+                <button onclick="showResidentTab('marTab')">MAR Log</button>
+            </div>
+
+            <div id="medsTab" class="resident-tab">
+                <div class="section-header-row">
+                    <h3>Active Medications</h3>
+                </div>
+                <ul id="med-list" class="med-list">
+                    <!-- Meds injected here -->
+                </ul>
+
+                <div class="card">
+                    <h3>Add Medication</h3>
+                    <form id="addMedForm" class="form-grid">
+                        <div class="form-group">
+                            <label for="medName">Medication Name</label>
+                            <input type="text" id="medName" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="medDose">Dosage</label>
+                            <input type="text" id="medDose" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="medRoute">Route</label>
+                            <input type="text" id="medRoute" placeholder="PO, IM, IV, etc.">
+                        </div>
+                        <div class="form-group">
+                            <label for="medFreq">Frequency</label>
+                            <input type="text" id="medFreq" placeholder="BID, TID, q6h, etc.">
+                        </div>
+                        <div class="form-group full-width">
+                            <label for="medInstr">Instructions</label>
+                            <textarea id="medInstr" rows="2"></textarea>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="primary-btn">Save Medication</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div id="marTab" class="resident-tab" style="display:none;">
+                <div class="section-header-row">
+                    <h3>MAR Timeline</h3>
+                </div>
+                <div id="marLogContainer" class="mar-log">
+                    <!-- MAR entries injected here -->
+                </div>
+            </div>
+        </section>
+    </main>
+</div>
+
+<!-- ADD RESIDENT MODAL -->
+<div id="addResidentModal" class="modal-backdrop" style="display:none;">
+    <div class="modal">
+        <div class="modal-header">
+            <h2>Add Resident</h2>
+            <button class="icon-btn" onclick="closeAddResidentModal()">✕</button>
+        </div>
+        <form id="addResidentForm" class="form-grid">
+            <div class="form-group full-width">
+                <label for="newResidentName">Full Name</label>
+                <input type="text" id="newResidentName" required>
+            </div>
+            <div class="form-group">
+                <label for="newResidentRoom">Room Number</label>
+                <input type="text" id="newResidentRoom" required>
+            </div>
+            <div class="form-group full-width">
+                <label for="newResidentPhotoFile">Photo</label>
+                <input type="file" id="newResidentPhotoFile" accept="image/*">
+            </div>
+            <div class="form-group full-width">
+                <img id="residentPhotoPreview" class="resident-photo-preview" style="display:none;">
+            </div>
+            <div class="form-actions full-width">
+                <button type="button" class="secondary-btn" onclick="closeAddResidentModal()">Cancel</button>
+                <button type="button" id="saveResidentButton" class="primary-btn" onclick="saveNewResident()">Save Resident</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
