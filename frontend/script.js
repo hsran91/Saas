@@ -357,7 +357,7 @@ if (addMedForm) {
             route: document.getElementById("medRoute")?.value || "",
             frequency: document.getElementById("medFreq")?.value || "",
             instructions: document.getElementById("medInstr")?.value || "",
-            patientId: currentResidentId
+            residentId: currentResidentId
         };
 
         fetch(`${API_BASE}/medications`, {
