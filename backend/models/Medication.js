@@ -6,6 +6,7 @@ const MedicationSchema = new mongoose.Schema({
   route: { type: String },
   frequency: { type: String },
   time: { type: String },
+  times: [{ type: String }],
   instructions: { type: String },
   residentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Resident', required: true },
   status: { type: String, default: 'active' },

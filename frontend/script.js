@@ -254,6 +254,70 @@ function openAddMedPanel() {
 function closeAddMedPanel() {
     const panel = document.getElementById("addMedPanel");
     if (panel) panel.style.display = "none";
+    const form = document.getElementById("addMedForm");
+    if (form) form.reset();
+    resetMedTimeRows();
+}
+
+function addMedTimeRow() {
+    const container = document.getElementById("medTimesContainer");
+    if (!container) return;
+
+    const row = document.createElement("div");
+    row.className = "time-row";
+    row.innerHTML = `
+        <input type="text" class="med-time-input" placeholder="08:00" required>
+        <select class="med-time-period" aria-label="AM or PM">
+            <option>AM</option>
+            <option>PM</option>
+        </select>
+        <button type="button" class="secondary-btn small-btn" onclick="removeMedTimeRow(this)">Remove</button>
+    `;
+
+    container.appendChild(row);
+    updateMedTimeButtons();
+}
+
+function removeMedTimeRow(button) {
+    const row = button.closest(".time-row");
+    if (!row) return;
+    const container = document.getElementById("medTimesContainer");
+    if (!container) return;
+
+    if (container.querySelectorAll(".time-row").length === 1) {
+        return;
+    }
+
+    row.remove();
+    updateMedTimeButtons();
+}
+
+function resetMedTimeRows() {
+    const container = document.getElementById("medTimesContainer");
+    if (!container) return;
+
+    container.innerHTML = `
+        <div class="time-row">
+            <input type="text" class="med-time-input" placeholder="08:00" required>
+            <select class="med-time-period" aria-label="AM or PM">
+                <option>AM</option>
+                <option>PM</option>
+            </select>
+            <button type="button" class="secondary-btn small-btn" onclick="removeMedTimeRow(this)">Remove</button>
+        </div>
+    `;
+
+    updateMedTimeButtons();
+}
+
+function updateMedTimeButtons() {
+    const rows = document.querySelectorAll("#medTimesContainer .time-row");
+    rows.forEach(row => {
+        const btn = row.querySelector("button");
+        if (btn) {
+            btn.disabled = rows.length === 1;
+        }
+    });
 }
 
 // =========================
@@ -316,9 +380,8 @@ function loadMedications(residentId) {
 
             meds.forEach(med => {
                 const li = document.createElement("li");
-
-                // Display scheduled time if provided, otherwise show frequency
-                const timeText = med.time || med.times || med.scheduledTime || med.frequency || "";
+                const scheduledTimes = Array.isArray(med.times) && med.times.length ? med.times.join(", ") : "";
+                const timeText = scheduledTimes || med.time || med.frequency || "";
 
                 li.innerHTML = `
                     <div class="med-card">
@@ -351,11 +414,21 @@ if (addMedForm) {
             return;
         }
 
+        const timeRows = document.querySelectorAll("#medTimesContainer .time-row");
+        const medTimes = Array.from(timeRows).map(row => {
+            const timeInput = row.querySelector(".med-time-input");
+            const periodSelect = row.querySelector(".med-time-period");
+            const timeValue = timeInput?.value.trim();
+            const periodValue = periodSelect?.value.trim();
+            return timeValue ? `${timeValue} ${periodValue}`.trim() : "";
+        }).filter(Boolean);
+
         const medData = {
             name: document.getElementById("medName")?.value || "",
             dosage: document.getElementById("medDose")?.value || "",
             route: document.getElementById("medRoute")?.value || "",
             frequency: document.getElementById("medFreq")?.value || "",
+            times: medTimes,
             instructions: document.getElementById("medInstr")?.value || "",
             residentId: currentResidentId
         };

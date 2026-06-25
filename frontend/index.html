@@ -131,8 +131,22 @@
                         <input type="text" id="medRoute" placeholder="PO, IM, IV, etc.">
                     </div>
                     <div class="form-group">
-                        <label for="medFreq">Frequency / Time</label>
-                        <input type="text" id="medFreq" placeholder="BID, TID, 08:00, 20:00, etc.">
+                        <label for="medFreq">Frequency</label>
+                        <input type="text" id="medFreq" placeholder="BID, TID, QID, etc.">
+                    </div>
+                    <div class="form-group full-width">
+                        <label>Medication Times</label>
+                        <div id="medTimesContainer" class="times-container">
+                            <div class="time-row">
+                                <input type="text" class="med-time-input" placeholder="08:00" required>
+                                <select class="med-time-period" aria-label="AM or PM">
+                                    <option>AM</option>
+                                    <option>PM</option>
+                                </select>
+                                <button type="button" class="secondary-btn small-btn" onclick="removeMedTimeRow(this)">Remove</button>
+                            </div>
+                        </div>
+                        <button type="button" class="secondary-btn small-btn" onclick="addMedTimeRow()">Add Another Time</button>
                     </div>
                     <div class="form-group full-width">
                         <label for="medInstr">Instructions</label>

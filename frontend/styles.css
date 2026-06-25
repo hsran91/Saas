@@ -424,6 +424,27 @@ body {
     font-size: 14px;
 }
 
+.times-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.time-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.time-row .med-time-input {
+    flex: 1;
+}
+
+.small-btn {
+    padding: 6px 10px;
+    font-size: 12px;
+}
+
 .form-group input:focus,
 .form-group textarea:focus {
     outline: none;
