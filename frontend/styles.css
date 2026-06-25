@@ -35,16 +35,16 @@ body {
     gap: 10px;
 }
 
-.logo-mark {
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    background: linear-gradient(135deg, #0ea5e9, #6366f1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 800;
-    color: #0b1120;
+.logo-image {
+    display: block;
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
+    border-radius: 12px;
+    object-fit: contain;
+    background: #111827;
+    padding: 6px;
+    border: 1px solid rgba(14, 165, 233, 0.25);
 }
 
 .logo-text {
