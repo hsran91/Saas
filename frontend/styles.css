@@ -216,6 +216,37 @@ body {
     border-color: #1d4ed8;
 }
 
+/* Resident card thumbnail layout */
+.resident-card-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.resident-thumb {
+    width: 56px;
+    height: 56px;
+    border-radius: 8px;
+    object-fit: cover;
+    border: 1px solid #111827;
+    background: #0b1220;
+    flex: 0 0 56px;
+}
+
+.resident-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1 1 auto;
+}
+
+.resident-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
 /* RESIDENT PROFILE */
 
 .resident-profile {

@@ -102,12 +102,19 @@ function loadResidentCards() {
                 const card = document.createElement("div");
                 card.classList.add("resident-card");
 
+                const thumbSrc = resident.photoUrl ? `${API_BASE}${resident.photoUrl}` : "images/placeholder.svg";
+
                 card.innerHTML = `
-                    <div class="resident-card-header">
-                        <h3>${resident.firstName} ${resident.lastName}</h3>
-                        <button type="button" class="secondary-btn" onclick="event.stopPropagation(); deleteResident('${resident._id}')">Delete</button>
+                    <div class="resident-card-row">
+                        <img class="resident-thumb" src="${thumbSrc}" alt="${resident.firstName} ${resident.lastName}">
+                        <div class="resident-card-body">
+                            <div class="resident-card-header">
+                                <h3>${resident.firstName} ${resident.lastName}</h3>
+                                <button type="button" class="secondary-btn" onclick="event.stopPropagation(); deleteResident('${resident._id}')">Delete</button>
+                            </div>
+                            <p class="muted">Room ${resident.roomNumber}</p>
+                        </div>
                     </div>
-                    <p class="muted">Room ${resident.roomNumber}</p>
                 `;
 
                 card.onclick = () => openResidentProfile(resident._id);
@@ -220,7 +227,7 @@ function openResidentProfile(id) {
         if (resident.photoUrl) {
             photoEl.src = `${API_BASE}${resident.photoUrl}`;
         } else {
-            photoEl.src = "https://via.placeholder.com/120";
+            photoEl.src = "images/placeholder.svg";
         }
     }
 
