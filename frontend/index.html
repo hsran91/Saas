@@ -92,39 +92,14 @@
             <div id="medsTab" class="resident-tab">
                 <div class="section-header-row">
                     <h3>Active Medications</h3>
+                    <div>
+                        <button class="primary-btn" onclick="openAddMedPanel()">Add Medication</button>
+                    </div>
                 </div>
                 <ul id="med-list" class="med-list">
                     <!-- Meds injected here -->
                 </ul>
-
-                <div class="card">
-                    <h3>Add Medication</h3>
-                    <form id="addMedForm" class="form-grid">
-                        <div class="form-group">
-                            <label for="medName">Medication Name</label>
-                            <input type="text" id="medName" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="medDose">Dosage</label>
-                            <input type="text" id="medDose" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="medRoute">Route</label>
-                            <input type="text" id="medRoute" placeholder="PO, IM, IV, etc.">
-                        </div>
-                        <div class="form-group">
-                            <label for="medFreq">Frequency</label>
-                            <input type="text" id="medFreq" placeholder="BID, TID, q6h, etc.">
-                        </div>
-                        <div class="form-group full-width">
-                            <label for="medInstr">Instructions</label>
-                            <textarea id="medInstr" rows="2"></textarea>
-                        </div>
-                        <div class="form-actions">
-                            <button type="submit" class="primary-btn">Save Medication</button>
-                        </div>
-                    </form>
-                </div>
+                <!-- Add Medication form moved to side panel -->
             </div>
 
             <div id="marTab" class="resident-tab" style="display:none;">
@@ -135,6 +110,39 @@
                     <!-- MAR entries injected here -->
                 </div>
             </div>
+
+            <!-- SIDE PANEL: Add Medication -->
+            <aside id="addMedPanel" class="side-panel" style="display:none;">
+                <div class="side-panel-header">
+                    <h3>Add Medication</h3>
+                    <button class="icon-btn" onclick="closeAddMedPanel()">✕</button>
+                </div>
+                <form id="addMedForm" class="form-grid">
+                    <div class="form-group">
+                        <label for="medName">Medication Name</label>
+                        <input type="text" id="medName" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="medDose">Dosage</label>
+                        <input type="text" id="medDose" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="medRoute">Route</label>
+                        <input type="text" id="medRoute" placeholder="PO, IM, IV, etc.">
+                    </div>
+                    <div class="form-group">
+                        <label for="medFreq">Frequency / Time</label>
+                        <input type="text" id="medFreq" placeholder="BID, TID, 08:00, 20:00, etc.">
+                    </div>
+                    <div class="form-group full-width">
+                        <label for="medInstr">Instructions</label>
+                        <textarea id="medInstr" rows="2"></textarea>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="primary-btn">Save Medication</button>
+                    </div>
+                </form>
+            </aside>
         </section>
     </main>
 </div>

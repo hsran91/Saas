@@ -240,6 +240,20 @@ function openResidentProfile(id) {
     showResidentTab("medsTab");
     loadMedications(id);
     loadMarLog(id);
+
+    // ensure add-med panel is closed when opening a profile
+    closeAddMedPanel();
+}
+
+// Side panel controls for Add Medication
+function openAddMedPanel() {
+    const panel = document.getElementById("addMedPanel");
+    if (panel) panel.style.display = "block";
+}
+
+function closeAddMedPanel() {
+    const panel = document.getElementById("addMedPanel");
+    if (panel) panel.style.display = "none";
 }
 
 // =========================
@@ -286,7 +300,8 @@ function deleteResident(id) {
 // =========================
 
 function loadMedications(residentId) {
-    fetch(`http://localhost:5000/medications/${residentId}`)
+    // try resident-specific endpoint first
+    fetch(`${API_BASE}/medications/${residentId}`)
         .then(res => res.json())
         .then(meds => {
             const medList = document.getElementById("med-list");
@@ -302,12 +317,15 @@ function loadMedications(residentId) {
             meds.forEach(med => {
                 const li = document.createElement("li");
 
+                // Display scheduled time if provided, otherwise show frequency
+                const timeText = med.time || med.times || med.scheduledTime || med.frequency || "";
+
                 li.innerHTML = `
                     <div class="med-card">
                         <div class="med-left">
                             <strong>${med.name}</strong>
                             <p>${med.dosage} — ${med.route}</p>
-                            <small>${med.frequency}</small><br>
+                            <small>${timeText}</small><br>
                             <small>${med.instructions || ""}</small>
                         </div>
                     </div>
@@ -342,7 +360,7 @@ if (addMedForm) {
             patientId: currentResidentId
         };
 
-        fetch("http://localhost:5000/medications", {
+        fetch(`${API_BASE}/medications`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(medData)
@@ -351,6 +369,7 @@ if (addMedForm) {
             .then(() => {
                 loadMedications(currentResidentId);
                 addMedForm.reset();
+                closeAddMedPanel();
             })
             .catch(err => console.error("Error adding medication:", err));
     });
