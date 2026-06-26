@@ -5,6 +5,21 @@
 const API_BASE = window.location.protocol === "file:" ? "http://localhost:5000" : "";
 let residents = [];
 let currentResidentId = null;
+const medicationDraftStatus = new Map();
+let passFinalized = false;
+
+function setPassFinalized(value) {
+    passFinalized = value;
+    const medList = document.getElementById("med-list");
+    const finalizeBtn = document.getElementById("finalizePassButton");
+
+    if (medList) {
+        medList.classList.toggle("pass-finalized", value);
+    }
+    if (finalizeBtn) {
+        finalizeBtn.disabled = value;
+    }
+}
 
 // =========================
 // PAGE NAVIGATION
@@ -238,6 +253,7 @@ function openResidentProfile(id) {
     }
 
     showResidentTab("medsTab");
+    setPassFinalized(false);
     loadMedications(id);
     loadMarLog(id);
 
@@ -364,7 +380,6 @@ function deleteResident(id) {
 // =========================
 
 function loadMedications(residentId) {
-    // try resident-specific endpoint first
     fetch(`${API_BASE}/medications/${residentId}`)
         .then(res => res.json())
         .then(meds => {
@@ -381,10 +396,15 @@ function loadMedications(residentId) {
             meds.forEach(med => {
                 const li = document.createElement("li");
                 const scheduledTimes = Array.isArray(med.times) && med.times.length ? med.times.join(", ") : "";
-                const timeText = scheduledTimes || med.time || med.frequency || "";
+                const timeText = scheduledTimes || med.time || med.frequency || "ASAP";
+                const scheduledTime = Array.isArray(med.times) && med.times.length ? med.times[0] : med.time || med.frequency || "ASAP";
 
                 li.innerHTML = `
                     <div class="med-card">
+                        <label class="med-card-checkbox">
+                            <input type="checkbox" class="med-given-checkbox" aria-label="Mark ${med.name} given">
+                            <span class="custom-check"></span>
+                        </label>
                         <div class="med-left">
                             <strong>${med.name}</strong>
                             <p>${med.dosage} — ${med.route}</p>
@@ -394,10 +414,85 @@ function loadMedications(residentId) {
                     </div>
                 `;
 
+                const checkbox = li.querySelector(".med-given-checkbox");
+                if (checkbox) {
+                    li.dataset.med = JSON.stringify(med);
+                    checkbox.dataset.medId = med._id;
+                    const draftStatus = medicationDraftStatus.get(med._id);
+                    checkbox.checked = draftStatus === "given";
+
+                    checkbox.addEventListener("change", () => {
+                        medicationDraftStatus.set(med._id, checkbox.checked ? "given" : "held");
+                        const card = checkbox.closest(".med-card");
+                        if (card) card.classList.toggle("given", checkbox.checked);
+                    });
+                }
+
                 medList.appendChild(li);
             });
         })
         .catch(err => console.error("Error loading medications:", err));
+}
+
+function finalizeMedicationPass() {
+    if (!currentResidentId) {
+        alert("Please select a resident before finalizing the medication pass.");
+        return;
+    }
+
+    const medList = document.getElementById("med-list");
+    if (!medList) return;
+
+    const promises = [];
+
+    medList.querySelectorAll("li").forEach(item => {
+        const checkbox = item.querySelector(".med-given-checkbox");
+        const medId = checkbox?.dataset.medId;
+        const med = checkbox ? JSON.parse(item.dataset.med) : null;
+        if (!med || !medId) return;
+
+        const selectedStatus = medicationDraftStatus.get(medId) || "held";
+        const scheduledTimes = Array.isArray(med.times) && med.times.length ? med.times.join(", ") : "";
+        const scheduledTime = Array.isArray(med.times) && med.times.length ? med.times[0] : med.time || med.frequency || "ASAP";
+
+        promises.push(
+            fetch(`${API_BASE}/mar`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    residentId: currentResidentId,
+                    medicationId: medId,
+                    scheduledTime,
+                    status: selectedStatus,
+                    staffName: "Medication Tech"
+                })
+            })
+                .then(async response => {
+                    if (!response.ok) {
+                        const error = await response.json().catch(() => ({}));
+                        throw new Error(error.error || "Failed to finalize medication pass");
+                    }
+                })
+        );
+    });
+
+    if (!promises.length) {
+        alert("No medications to finalize.");
+        return;
+    }
+
+    Promise.all(promises)
+        .then(() => {
+            alert("Medication pass finalized.");
+            medicationDraftStatus.clear();
+            loadMedications(currentResidentId);
+            loadMarLog(currentResidentId);
+            setPassFinalized(true);
+        })
+        .catch(err => {
+            console.error("Error finalizing medication pass:", err);
+            alert("Unable to finalize medication pass. Try again.");
+        });
 }
 
 // =========================
@@ -470,10 +565,11 @@ function loadMarLog(residentId) {
                 const div = document.createElement("div");
                 div.classList.add("mar-entry");
 
-                const formattedTime = new Date(entry.time).toLocaleString();
+                const medName = entry.medicationId?.name || entry.medicationName || "Medication";
+                const formattedTime = new Date(entry.actualTime).toLocaleString();
 
                 div.innerHTML = `
-                    <strong>${entry.medicationName}</strong>
+                    <strong>${medName}</strong>
                     <p>Status: ${entry.status}</p>
                     <p class="muted">${formattedTime}</p>
                 `;
