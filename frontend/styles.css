@@ -555,6 +555,27 @@ body {
     margin-bottom: 10px;
 }
 
+#heldReasonText {
+    margin-bottom: 10px;
+    color: #d1d5db;
+}
+
+#heldReasonInput {
+    width: 100%;
+    min-height: 100px;
+    background: #020617;
+    color: #e5e7eb;
+    border: 1px solid #111827;
+    border-radius: 10px;
+    padding: 10px;
+    font-size: 14px;
+    resize: vertical;
+}
+
+#heldReasonInput:focus {
+    outline: 2px solid #0ea5e9;
+}
+
 .resident-photo-preview {
     width: 96px;
     height: 96px;

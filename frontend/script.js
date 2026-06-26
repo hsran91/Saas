@@ -434,12 +434,88 @@ function loadMedications(residentId) {
         .catch(err => console.error("Error loading medications:", err));
 }
 
+let heldReasonQueue = [];
+let currentHeldReasonIndex = 0;
+
 function finalizeMedicationPass() {
     if (!currentResidentId) {
         alert("Please select a resident before finalizing the medication pass.");
         return;
     }
 
+    const medList = document.getElementById("med-list");
+    if (!medList) return;
+
+    const heldItems = [];
+
+    medList.querySelectorAll("li").forEach(item => {
+        const checkbox = item.querySelector(".med-given-checkbox");
+        const medId = checkbox?.dataset.medId;
+        const med = checkbox ? JSON.parse(item.dataset.med) : null;
+        if (!med || !medId) return;
+
+        const selectedStatus = medicationDraftStatus.get(medId) || "held";
+        if (selectedStatus === "held") {
+            heldItems.push({ med, medId });
+        }
+    });
+
+    heldReasonQueue = heldItems;
+    currentHeldReasonIndex = 0;
+
+    if (heldReasonQueue.length) {
+        openHeldReasonModal();
+    } else {
+        saveMedicationPass();
+    }
+}
+
+function openHeldReasonModal() {
+    const modal = document.getElementById("heldReasonModal");
+    const heldText = document.getElementById("heldReasonText");
+    const reasonInput = document.getElementById("heldReasonInput");
+
+    if (!modal || !heldText || !reasonInput) return;
+
+    const currentMed = heldReasonQueue[currentHeldReasonIndex];
+    heldText.textContent = `Why was ${currentMed.med.name} held?`;
+    reasonInput.value = "";
+    modal.style.display = "flex";
+    reasonInput.focus();
+}
+
+function cancelHeldReasonPrompt() {
+    const modal = document.getElementById("heldReasonModal");
+    if (modal) modal.style.display = "none";
+}
+
+const heldReasonForm = document.getElementById("heldReasonForm");
+if (heldReasonForm) {
+    heldReasonForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        const reasonInput = document.getElementById("heldReasonInput");
+        if (!reasonInput) return;
+
+        const reason = reasonInput.value.trim();
+        if (!reason) {
+            alert("Please enter a reason for held medication.");
+            return;
+        }
+
+        const item = heldReasonQueue[currentHeldReasonIndex];
+        item.reason = reason;
+        currentHeldReasonIndex += 1;
+
+        if (currentHeldReasonIndex < heldReasonQueue.length) {
+            openHeldReasonModal();
+        } else {
+            cancelHeldReasonPrompt();
+            saveMedicationPass();
+        }
+    });
+}
+
+function saveMedicationPass() {
     const medList = document.getElementById("med-list");
     if (!medList) return;
 
@@ -452,8 +528,9 @@ function finalizeMedicationPass() {
         if (!med || !medId) return;
 
         const selectedStatus = medicationDraftStatus.get(medId) || "held";
-        const scheduledTimes = Array.isArray(med.times) && med.times.length ? med.times.join(", ") : "";
         const scheduledTime = Array.isArray(med.times) && med.times.length ? med.times[0] : med.time || med.frequency || "ASAP";
+        const heldItem = heldReasonQueue.find(entry => entry.medId === medId);
+        const reason = heldItem ? heldItem.reason : undefined;
 
         promises.push(
             fetch(`${API_BASE}/mar`, {
@@ -464,7 +541,8 @@ function finalizeMedicationPass() {
                     medicationId: medId,
                     scheduledTime,
                     status: selectedStatus,
-                    staffName: "Medication Tech"
+                    staffName: "Medication Tech",
+                    reason
                 })
             })
                 .then(async response => {
@@ -485,6 +563,8 @@ function finalizeMedicationPass() {
         .then(() => {
             alert("Medication pass finalized.");
             medicationDraftStatus.clear();
+            heldReasonQueue = [];
+            currentHeldReasonIndex = 0;
             loadMedications(currentResidentId);
             loadMarLog(currentResidentId);
             setPassFinalized(true);
@@ -571,6 +651,7 @@ function loadMarLog(residentId) {
                 div.innerHTML = `
                     <strong>${medName}</strong>
                     <p>Status: ${entry.status}</p>
+                    ${entry.reason ? `<p>Reason: ${entry.reason}</p>` : ""}
                     <p class="muted">${formattedTime}</p>
                 `;
 
