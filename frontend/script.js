@@ -104,7 +104,7 @@ if (photoInput) {
 // =========================
 
 function loadResidentCards() {
-    fetch(`${API_BASE}/residents`)
+    return fetch(`${API_BASE}/residents`)
         .then(res => res.json())
         .then(data => {
             residents = data;
@@ -360,6 +360,10 @@ function showResidentTab(tabId) {
 
     const activeBtn = document.querySelector(`.resident-tabs button[onclick="showResidentTab('${tabId}')"]`);
     if (activeBtn) activeBtn.classList.add("active-tab");
+
+    if (tabId === "billingTab" && currentResidentId) {
+        loadBilling(currentResidentId);
+    }
 }
 
 function openAddInvoicePanel() {
@@ -372,6 +376,44 @@ function closeAddInvoicePanel() {
     if (panel) panel.style.display = "none";
     const form = document.getElementById("addInvoiceForm");
     if (form) form.reset();
+}
+
+function openPayInvoicePanel() {
+    populatePayResidentSelect();
+    const panel = document.getElementById("payInvoicePanel");
+    if (panel) panel.style.display = "block";
+}
+
+function closePayInvoicePanel() {
+    const panel = document.getElementById("payInvoicePanel");
+    if (panel) panel.style.display = "none";
+    const form = document.getElementById("payInvoiceForm");
+    if (form) form.reset();
+}
+
+function populatePayResidentSelect() {
+    const select = document.getElementById("payResidentSelect");
+    if (!select) return;
+
+    const renderOptions = () => {
+        select.innerHTML = `<option value="">Select a resident</option>`;
+        residents.forEach(resident => {
+            const name = `${resident.firstName} ${resident.lastName}`.trim();
+            select.innerHTML += `<option value="${resident._id}">${name} ${resident.roomNumber ? `(${resident.roomNumber})` : ""}</option>`;
+        });
+
+        if (currentResidentId) {
+            select.value = currentResidentId;
+        }
+    };
+
+    if (!residents.length) {
+        loadResidentCards().then(renderOptions).catch(err => {
+            console.error("Error loading residents for payment select:", err);
+        });
+    } else {
+        renderOptions();
+    }
 }
 
 function formatCurrency(amount) {
@@ -398,7 +440,7 @@ function renderInvoiceListInContainer(container, invoices, showResident = false)
             <div class="invoice-row">
                 <div>
                     <h4>${invoice.description}</h4>
-                    ${showResident && invoice.resident ? `<p class="muted">Resident: ${invoice.resident.firstName} ${invoice.resident.lastName} (${invoice.resident.roomNumber || "—"})</p>` : ""}
+                    ${showResident && invoice.residentId ? `<p class="muted">Resident: ${invoice.residentId.firstName} ${invoice.residentId.lastName} (${invoice.residentId.roomNumber || "—"})</p>` : ""}
                     <p>${invoice.notes || "No additional notes."}</p>
                 </div>
                 <div class="invoice-status ${statusClass}">${invoice.status}</div>
@@ -407,6 +449,13 @@ function renderInvoiceListInContainer(container, invoices, showResident = false)
                 <p>Amount: <strong>${formatCurrency(invoice.amount)}</strong></p>
                 <p>Due: <strong>${dueDate}</strong></p>
             </div>
+            ${invoice.status === "paid" ? `
+                <div class="invoice-meta">
+                    <p>Paid by: <strong>${invoice.payerName || "Unknown"}</strong></p>
+                    <p>Method: <strong>${invoice.paymentMethod || "—"}</strong></p>
+                    ${invoice.paymentReference ? `<p>Ref: <strong>${invoice.paymentReference}</strong></p>` : ""}
+                </div>
+            ` : ""}
             <div class="invoice-actions">
                 ${invoice.status === "pending" ? `<button type="button" class="primary-btn" onclick="payInvoice('${invoice._id}')">Mark Paid</button>` : ""}
             </div>
@@ -424,6 +473,20 @@ function renderBillingPageInvoices(invoices) {
     renderInvoiceListInContainer(document.getElementById("billingInvoiceList"), invoices, true);
 }
 
+function setResidentInvoiceCount(count) {
+    const badge = document.getElementById("residentInvoiceCount");
+    if (!badge) return;
+    badge.textContent = count > 0 ? `${count} pending` : "No pending";
+    badge.classList.toggle("visible", count > 0 || count === 0);
+}
+
+function setBillingPendingCount(count) {
+    const badge = document.getElementById("billingPendingCount");
+    if (!badge) return;
+    badge.textContent = count > 0 ? `${count} pending` : "No pending";
+    badge.classList.toggle("visible", count > 0 || count === 0);
+}
+
 function loadBilling(residentId) {
     if (!residentId) return;
 
@@ -431,6 +494,7 @@ function loadBilling(residentId) {
         .then(res => res.json())
         .then(invoices => {
             renderInvoiceList(Array.isArray(invoices) ? invoices : []);
+            setResidentInvoiceCount(Array.isArray(invoices) ? invoices.filter(i => i.status === "pending").length : 0);
         })
         .catch(err => {
             console.error("Error loading invoices:", err);
@@ -441,7 +505,9 @@ function loadBillingPage() {
     fetch(`${API_BASE}/invoices`)
         .then(res => res.json())
         .then(invoices => {
-            renderBillingPageInvoices(Array.isArray(invoices) ? invoices : []);
+            const invoiceArray = Array.isArray(invoices) ? invoices : [];
+            renderBillingPageInvoices(invoiceArray);
+            setBillingPendingCount(invoiceArray.filter(i => i.status === "pending").length);
         })
         .catch(err => {
             console.error("Error loading all invoices:", err);
@@ -459,7 +525,12 @@ async function payInvoice(invoiceId) {
             const error = await response.json().catch(() => ({}));
             throw new Error(error.error || "Unable to update invoice status");
         }
-        loadBilling(currentResidentId);
+        if (document.getElementById("billingPage")?.style.display === "block") {
+            loadBillingPage();
+        }
+        if (currentResidentId) {
+            loadBilling(currentResidentId);
+        }
         alert("Invoice marked as paid.");
     } catch (err) {
         console.error(err);
@@ -766,11 +837,69 @@ if (addInvoiceForm) {
             })
             .then(() => {
                 closeAddInvoicePanel();
-                loadBilling(currentResidentId);
+                if (currentResidentId) {
+                    showResidentTab("billingTab");
+                    loadBilling(currentResidentId);
+                }
             })
             .catch(err => {
                 console.error("Error creating invoice:", err);
                 alert(err.message || "Unable to create invoice.");
+            });
+    });
+}
+
+const payInvoiceForm = document.getElementById("payInvoiceForm");
+if (payInvoiceForm) {
+    payInvoiceForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+
+        const residentId = document.getElementById("payResidentSelect")?.value;
+        const description = document.getElementById("payDescription")?.value.trim();
+        const amount = Number(document.getElementById("payAmount")?.value || 0);
+        const dueDate = document.getElementById("payDueDate")?.value || null;
+        const notes = document.getElementById("payNotes")?.value || "";
+        const paymentMethod = document.getElementById("paymentMethod")?.value;
+        const payerName = document.getElementById("payerName")?.value.trim();
+        const paymentInfo = document.getElementById("paymentInfo")?.value.trim();
+
+        if (!residentId || !description || !amount || !paymentMethod || !payerName || !paymentInfo) {
+            alert("Please complete all payment and invoice details.");
+            return;
+        }
+
+        const invoiceData = {
+            residentId,
+            description,
+            amount,
+            dueDate,
+            notes,
+            paymentMethod,
+            payerName,
+            paymentInfo,
+        };
+
+        fetch(`${API_BASE}/invoices`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(invoiceData)
+        })
+            .then(async res => {
+                if (!res.ok) {
+                    const payload = await res.json().catch(() => ({}));
+                    throw new Error(payload.error || "Failed to process payment");
+                }
+                return res.json();
+            })
+            .then(() => {
+                closePayInvoicePanel();
+                loadBillingPage();
+                showPage("billingPage");
+                alert("Payment processed and invoice created.");
+            })
+            .catch(err => {
+                console.error("Error processing payment:", err);
+                alert(err.message || "Unable to process payment.");
             });
     });
 }
