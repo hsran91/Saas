@@ -439,9 +439,10 @@ function renderInvoiceListInContainer(container, invoices, showResident = false)
         card.innerHTML = `
             <div class="invoice-row">
                 <div>
-                    <h4>${invoice.description}</h4>
+                    <h4>${invoice.description || "Invoice"}</h4>
                     ${showResident && invoice.residentId ? `<p class="muted">Resident: ${invoice.residentId.firstName} ${invoice.residentId.lastName} (${invoice.residentId.roomNumber || "—"})</p>` : ""}
-                    <p>${invoice.notes || "No additional notes."}</p>
+                    <p class="muted"><strong>Description:</strong> ${invoice.description || "No description provided."}</p>
+                    <p>${invoice.notes ? `<strong>Notes:</strong> ${invoice.notes}` : "No additional notes."}</p>
                 </div>
                 <div class="invoice-status ${statusClass}">${invoice.status}</div>
             </div>
@@ -893,8 +894,13 @@ if (payInvoiceForm) {
             })
             .then(() => {
                 closePayInvoicePanel();
-                loadBillingPage();
-                showPage("billingPage");
+                if (residentId === currentResidentId) {
+                    showResidentTab("billingTab");
+                    loadBilling(currentResidentId);
+                } else {
+                    loadBillingPage();
+                    showPage("billingPage");
+                }
                 alert("Payment processed and invoice created.");
             })
             .catch(err => {
