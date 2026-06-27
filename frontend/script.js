@@ -39,6 +39,7 @@ function showPage(pageId) {
     if (pageId === "residentsPage") document.getElementById("nav-residents").classList.add("active-nav");
     if (pageId === "medicationsPage") document.getElementById("nav-meds").classList.add("active-nav");
     if (pageId === "marPage") document.getElementById("nav-mar").classList.add("active-nav");
+    if (pageId === "billingPage") document.getElementById("nav-billing").classList.add("active-nav");
 
     // Hide resident profile when switching main pages
     const profile = document.getElementById("residentProfile");
@@ -47,6 +48,10 @@ function showPage(pageId) {
     // When going to Residents page, refresh list
     if (pageId === "residentsPage") {
         loadResidentCards();
+    }
+
+    if (pageId === "billingPage") {
+        loadBillingPage();
     }
 }
 
@@ -256,6 +261,7 @@ function openResidentProfile(id) {
     setPassFinalized(false);
     loadMedications(id);
     loadMarLog(id);
+    loadBilling(id);
 
     // ensure add-med panel is closed when opening a profile
     closeAddMedPanel();
@@ -356,10 +362,115 @@ function showResidentTab(tabId) {
     if (activeBtn) activeBtn.classList.add("active-tab");
 }
 
+function openAddInvoicePanel() {
+    const panel = document.getElementById("addInvoicePanel");
+    if (panel) panel.style.display = "block";
+}
+
+function closeAddInvoicePanel() {
+    const panel = document.getElementById("addInvoicePanel");
+    if (panel) panel.style.display = "none";
+    const form = document.getElementById("addInvoiceForm");
+    if (form) form.reset();
+}
+
+function formatCurrency(amount) {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount || 0);
+}
+
+function renderInvoiceListInContainer(container, invoices, showResident = false) {
+    if (!container) return;
+
+    container.innerHTML = "";
+
+    if (!invoices.length) {
+        container.innerHTML = `<p class="muted">No invoices yet. ${showResident ? "Use New Invoice to create one." : "Refresh to check for invoices."}</p>`;
+        return;
+    }
+
+    invoices.forEach(invoice => {
+        const card = document.createElement("div");
+        card.className = "invoice-card";
+        const dueDate = invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : "—";
+        const statusClass = invoice.status === "paid" ? "paid" : "pending";
+
+        card.innerHTML = `
+            <div class="invoice-row">
+                <div>
+                    <h4>${invoice.description}</h4>
+                    ${showResident && invoice.resident ? `<p class="muted">Resident: ${invoice.resident.firstName} ${invoice.resident.lastName} (${invoice.resident.roomNumber || "—"})</p>` : ""}
+                    <p>${invoice.notes || "No additional notes."}</p>
+                </div>
+                <div class="invoice-status ${statusClass}">${invoice.status}</div>
+            </div>
+            <div class="invoice-row">
+                <p>Amount: <strong>${formatCurrency(invoice.amount)}</strong></p>
+                <p>Due: <strong>${dueDate}</strong></p>
+            </div>
+            <div class="invoice-actions">
+                ${invoice.status === "pending" ? `<button type="button" class="primary-btn" onclick="payInvoice('${invoice._id}')">Mark Paid</button>` : ""}
+            </div>
+        `;
+
+        container.appendChild(card);
+    });
+}
+
+function renderInvoiceList(invoices) {
+    renderInvoiceListInContainer(document.getElementById("invoiceList"), invoices, false);
+}
+
+function renderBillingPageInvoices(invoices) {
+    renderInvoiceListInContainer(document.getElementById("billingInvoiceList"), invoices, true);
+}
+
+function loadBilling(residentId) {
+    if (!residentId) return;
+
+    fetch(`${API_BASE}/invoices/${residentId}`)
+        .then(res => res.json())
+        .then(invoices => {
+            renderInvoiceList(Array.isArray(invoices) ? invoices : []);
+        })
+        .catch(err => {
+            console.error("Error loading invoices:", err);
+        });
+}
+
+function loadBillingPage() {
+    fetch(`${API_BASE}/invoices`)
+        .then(res => res.json())
+        .then(invoices => {
+            renderBillingPageInvoices(Array.isArray(invoices) ? invoices : []);
+        })
+        .catch(err => {
+            console.error("Error loading all invoices:", err);
+            const container = document.getElementById("billingInvoiceList");
+            if (container) container.innerHTML = `<p class="muted">Unable to load invoices.</p>`;
+        });
+}
+
+async function payInvoice(invoiceId) {
+    if (!invoiceId) return;
+
+    try {
+        const response = await fetch(`${API_BASE}/invoices/${invoiceId}/pay`, { method: "PATCH" });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.error || "Unable to update invoice status");
+        }
+        loadBilling(currentResidentId);
+        alert("Invoice marked as paid.");
+    } catch (err) {
+        console.error(err);
+        alert(err.message || "Failed to mark invoice paid.");
+    }
+}
+
 function deleteResident(id) {
     if (!confirm("Delete this resident?")) return;
 
-    fetch(`http://localhost:5000/residents/${id}`, {
+    fetch(`${API_BASE}/residents/${id}`, {
         method: "DELETE"
     })
         .then(res => res.json())
@@ -623,12 +734,53 @@ if (addMedForm) {
     });
 }
 
+const addInvoiceForm = document.getElementById("addInvoiceForm");
+if (addInvoiceForm) {
+    addInvoiceForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+
+        if (!currentResidentId) {
+            alert("No resident selected.");
+            return;
+        }
+
+        const invoiceData = {
+            residentId: currentResidentId,
+            description: document.getElementById("invoiceDescription")?.value || "",
+            amount: Number(document.getElementById("invoiceAmount")?.value || 0),
+            dueDate: document.getElementById("invoiceDueDate")?.value || null,
+            notes: document.getElementById("invoiceNotes")?.value || ""
+        };
+
+        fetch(`${API_BASE}/invoices`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(invoiceData)
+        })
+            .then(async res => {
+                if (!res.ok) {
+                    const payload = await res.json().catch(() => ({}));
+                    throw new Error(payload.error || "Failed to create invoice");
+                }
+                return res.json();
+            })
+            .then(() => {
+                closeAddInvoicePanel();
+                loadBilling(currentResidentId);
+            })
+            .catch(err => {
+                console.error("Error creating invoice:", err);
+                alert(err.message || "Unable to create invoice.");
+            });
+    });
+}
+
 // =========================
 // LOAD MAR LOG
 // =========================
 
 function loadMarLog(residentId) {
-    fetch(`http://localhost:5000/mar/${residentId}`)
+    fetch(`${API_BASE}/mar/${residentId}`)
         .then(res => res.json())
         .then(entries => {
             const container = document.getElementById("marLogContainer");

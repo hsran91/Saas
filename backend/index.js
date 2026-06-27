@@ -6,6 +6,7 @@ const path = require("path");
 const residentRoutes = require("./routes/residentRoutes");
 const medicationRoutes = require("./routes/medicationRoutes");
 const marRoutes = require("./routes/marRoutes");
+const invoiceRoutes = require("./routes/invoiceRoutes");
 
 const app = express();
 
@@ -30,6 +31,7 @@ app.get("/", (req, res) => {
 app.use("/residents", residentRoutes);
 app.use("/medications", medicationRoutes);
 app.use("/mar", marRoutes);
+app.use("/invoices", invoiceRoutes);
 
 // =========================
 // DATABASE CONNECTION

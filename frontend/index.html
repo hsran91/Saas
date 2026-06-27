@@ -27,6 +27,9 @@
             <button onclick="showPage('marPage')" class="nav-item" id="nav-mar">
                 MAR Log
             </button>
+            <button onclick="showPage('billingPage')" class="nav-item" id="nav-billing">
+                Billing
+            </button>
         </nav>
     </aside>
 
@@ -74,6 +77,17 @@
             <p class="muted">MAR entries are visible per resident in their profile.</p>
         </section>
 
+        <section id="billingPage" class="page" style="display:none;">
+            <h2 class="page-title">Billing</h2>
+            <div class="section-header-row">
+                <p class="muted">Review all invoices across residents or drill into a resident's billing details.</p>
+                <button class="primary-btn" onclick="loadBillingPage()">Refresh</button>
+            </div>
+            <div id="billingInvoiceList" class="invoice-list">
+                <p class="muted">Loading invoices...</p>
+            </div>
+        </section>
+
         <!-- RESIDENT PROFILE PANEL -->
         <section id="residentProfile" class="resident-profile" style="display:none;">
             <div class="resident-header">
@@ -87,6 +101,7 @@
             <div class="resident-tabs">
                 <button onclick="showResidentTab('medsTab')" class="active-tab">Medications</button>
                 <button onclick="showResidentTab('marTab')">MAR Log</button>
+                <button onclick="showResidentTab('billingTab')">Billing</button>
             </div>
 
             <div id="medsTab" class="resident-tab">
@@ -109,6 +124,19 @@
                 </div>
                 <div id="marLogContainer" class="mar-log">
                     <!-- MAR entries injected here -->
+                </div>
+            </div>
+
+            <div id="billingTab" class="resident-tab" style="display:none;">
+                <div class="section-header-row">
+                    <h3>Invoices & Bill Pay</h3>
+                    <button class="primary-btn" onclick="openAddInvoicePanel()">New Invoice</button>
+                </div>
+                <div id="invoiceSummary" class="invoice-summary">
+                    <p class="muted">Create invoices for this resident and mark them paid when settled.</p>
+                    <div id="invoiceList" class="invoice-list">
+                        <!-- Invoice cards injected here -->
+                    </div>
                 </div>
             </div>
 
@@ -155,6 +183,35 @@
                     </div>
                     <div class="form-actions">
                         <button type="submit" class="primary-btn">Save Medication</button>
+                    </div>
+                </form>
+            </aside>
+
+            <aside id="addInvoicePanel" class="side-panel" style="display:none;">
+                <div class="side-panel-header">
+                    <h3>New Invoice</h3>
+                    <button class="icon-btn" onclick="closeAddInvoicePanel()">✕</button>
+                </div>
+                <form id="addInvoiceForm" class="form-grid">
+                    <div class="form-group full-width">
+                        <label for="invoiceDescription">Description</label>
+                        <input type="text" id="invoiceDescription" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="invoiceAmount">Amount</label>
+                        <input type="number" id="invoiceAmount" step="0.01" min="0" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="invoiceDueDate">Due Date</label>
+                        <input type="date" id="invoiceDueDate">
+                    </div>
+                    <div class="form-group full-width">
+                        <label for="invoiceNotes">Notes</label>
+                        <textarea id="invoiceNotes" rows="3"></textarea>
+                    </div>
+                    <div class="form-actions full-width">
+                        <button type="button" class="secondary-btn" onclick="closeAddInvoicePanel()">Cancel</button>
+                        <button type="submit" class="primary-btn">Create Invoice</button>
                     </div>
                 </form>
             </aside>

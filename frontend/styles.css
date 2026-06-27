@@ -357,6 +357,68 @@ body {
     border-color: transparent;
 }
 
+.invoice-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-top: 12px;
+}
+
+.invoice-list {
+    display: grid;
+    gap: 12px;
+}
+
+.invoice-card {
+    background: #020617;
+    border: 1px solid #111827;
+    border-radius: 12px;
+    padding: 16px;
+}
+
+.invoice-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.invoice-card h4 {
+    margin-bottom: 8px;
+}
+
+.invoice-card p {
+    margin: 4px 0;
+    color: #d1d5db;
+}
+
+.invoice-status {
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.invoice-status.pending {
+    background: rgba(248, 113, 113, 0.15);
+    color: #fca5a5;
+}
+
+.invoice-status.paid {
+    background: rgba(34, 197, 94, 0.15);
+    color: #bbf7d0;
+}
+
+.invoice-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+}
+
 /* MED LIST */
 
 .med-list {
