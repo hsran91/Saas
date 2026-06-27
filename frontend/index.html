@@ -78,14 +78,13 @@
         </section>
 
         <section id="billingPage" class="page" style="display:none;">
-            <h2 class="page-title">Billing</h2>
+            <h2 class="page-title">Billing <span id="billingPendingCount" class="invoice-badge"></span></h2>
             <div class="section-header-row">
                 <p class="muted">Review all invoices across residents or drill into a resident's billing details.</p>
-                <button class="primary-btn" onclick="loadBillingPage()">Refresh</button>
-            </div>
-            <div id="billingInvoiceList" class="invoice-list">
-                <p class="muted">Loading invoices...</p>
-            </div>
+                    <div class="section-header-row-actions">
+                        <button class="secondary-btn" onclick="openPayInvoicePanel()">Pay Now</button>
+                        <button class="primary-btn" onclick="loadBillingPage()">Refresh</button>
+                    </div>
         </section>
 
         <!-- RESIDENT PROFILE PANEL -->
@@ -129,8 +128,11 @@
 
             <div id="billingTab" class="resident-tab" style="display:none;">
                 <div class="section-header-row">
-                    <h3>Invoices & Bill Pay</h3>
-                    <button class="primary-btn" onclick="openAddInvoicePanel()">New Invoice</button>
+                    <h3>Invoices & Bill Pay <span id="residentInvoiceCount" class="invoice-badge"></span></h3>
+                    <div class="section-header-row-actions">
+                        <button class="secondary-btn" onclick="openPayInvoicePanel()">Pay Now</button>
+                        <button class="primary-btn" onclick="openAddInvoicePanel()">New Invoice</button>
+                    </div>
                 </div>
                 <div id="invoiceSummary" class="invoice-summary">
                     <p class="muted">Create invoices for this resident and mark them paid when settled.</p>
@@ -212,6 +214,57 @@
                     <div class="form-actions full-width">
                         <button type="button" class="secondary-btn" onclick="closeAddInvoicePanel()">Cancel</button>
                         <button type="submit" class="primary-btn">Create Invoice</button>
+                    </div>
+                </form>
+            </aside>
+
+            <aside id="payInvoicePanel" class="side-panel" style="display:none;">
+                <div class="side-panel-header">
+                    <h3>Pay Invoice</h3>
+                    <button class="icon-btn" onclick="closePayInvoicePanel()">✕</button>
+                </div>
+                <form id="payInvoiceForm" class="form-grid">
+                    <div class="form-group full-width">
+                        <label for="payResidentSelect">Resident</label>
+                        <select id="payResidentSelect" required>
+                            <option value="">Select a resident</option>
+                        </select>
+                    </div>
+                    <div class="form-group full-width">
+                        <label for="payDescription">Description</label>
+                        <input type="text" id="payDescription" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="payAmount">Amount</label>
+                        <input type="number" id="payAmount" step="0.01" min="0" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="payDueDate">Due Date</label>
+                        <input type="date" id="payDueDate">
+                    </div>
+                    <div class="form-group full-width">
+                        <label for="payNotes">Notes</label>
+                        <textarea id="payNotes" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="paymentMethod">Payment Type</label>
+                        <select id="paymentMethod" required>
+                            <option value="credit">Credit Card</option>
+                            <option value="debit">Debit Card</option>
+                            <option value="bank">Bank Transfer</option>
+                        </select>
+                    </div>
+                    <div class="form-group full-width">
+                        <label for="payerName">Payer Name</label>
+                        <input type="text" id="payerName" required>
+                    </div>
+                    <div class="form-group full-width">
+                        <label for="paymentInfo">Payment Info</label>
+                        <input type="text" id="paymentInfo" placeholder="Card or bank details" required>
+                    </div>
+                    <div class="form-actions full-width">
+                        <button type="button" class="secondary-btn" onclick="closePayInvoicePanel()">Cancel</button>
+                        <button type="submit" class="primary-btn">Pay & Create Invoice</button>
                     </div>
                 </form>
             </aside>

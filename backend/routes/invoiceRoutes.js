@@ -5,11 +5,22 @@ const Invoice = require("../models/Invoice");
 // Create a new invoice
 router.post("/", async (req, res) => {
   try {
-    const { residentId, description, amount, dueDate, notes } = req.body;
+    const {
+      residentId,
+      description,
+      amount,
+      dueDate,
+      notes,
+      paymentMethod,
+      payerName,
+      paymentInfo,
+    } = req.body;
 
     if (!residentId || !description || amount === undefined) {
       return res.status(400).json({ error: "residentId, description, and amount are required" });
     }
+
+    const isPaid = paymentMethod && payerName && paymentInfo;
 
     const invoice = new Invoice({
       residentId,
@@ -17,6 +28,12 @@ router.post("/", async (req, res) => {
       amount,
       dueDate: dueDate || null,
       notes: notes || "",
+      paymentMethod: paymentMethod || null,
+      payerName: payerName || "",
+      paymentInfo: paymentInfo || "",
+      paymentReference: isPaid ? `PAY-${Date.now()}` : "",
+      status: isPaid ? "paid" : "pending",
+      paidAt: isPaid ? new Date() : undefined,
     });
 
     await invoice.save();

@@ -22,6 +22,23 @@ const InvoiceSchema = new mongoose.Schema({
     type: String,
     default: "",
   },
+  paymentMethod: {
+    type: String,
+    enum: ["credit", "debit", "bank"],
+    default: null,
+  },
+  payerName: {
+    type: String,
+    default: "",
+  },
+  paymentInfo: {
+    type: String,
+    default: "",
+  },
+  paymentReference: {
+    type: String,
+    default: "",
+  },
   status: {
     type: String,
     enum: ["pending", "paid"],
