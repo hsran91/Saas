@@ -12,6 +12,67 @@ body {
     color: #e5e7eb;
 }
 
+.login-shell {
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 24px;
+}
+
+.login-card {
+    background: #020617;
+    border: 1px solid #111827;
+    border-radius: 18px;
+    padding: 28px;
+    width: 420px;
+    max-width: 100%;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+}
+
+.login-card h1 {
+    margin-bottom: 10px;
+    font-size: 28px;
+}
+
+.login-card p {
+    margin-bottom: 22px;
+    color: #9ca3af;
+}
+
+.error-text {
+    color: #fda4af;
+    font-size: 14px;
+    margin-top: 4px;
+}
+
+.form-toggle-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 18px;
+}
+
+.toggle-btn {
+    flex: 1;
+    border: 1px solid #111827;
+    background: #020617;
+    color: #9ca3af;
+    padding: 10px 14px;
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+.active-toggle {
+    background: #111827;
+    color: #e5e7eb;
+    border-color: #2563eb;
+}
+
+.login-card input,
+.login-card select {
+    width: 100%;
+}
+
 .app-shell {
     display: flex;
     min-height: 100vh;
@@ -247,6 +308,22 @@ body {
     gap: 8px;
 }
 
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.card-header h3 {
+    margin: 0;
+}
+
+.small-btn {
+    padding: 6px 10px;
+    font-size: 12px;
+}
+
 /* RESIDENT PROFILE */
 
 .resident-profile {
@@ -374,6 +451,40 @@ body {
     border: 1px solid #111827;
     border-radius: 12px;
     padding: 16px;
+}
+
+.alerts-list,
+.alert-entry {
+    display: grid;
+    gap: 10px;
+}
+
+.alert-entry {
+    background: #020617;
+    border: 1px solid #111827;
+    border-radius: 12px;
+    padding: 16px;
+    transition: background .2s ease;
+}
+
+.alert-entry:hover {
+    background: #111827;
+}
+
+.alert-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.alert-meta {
+    text-align: right;
+    min-width: 140px;
+}
+
+.alert-meta p {
+    margin: 0;
 }
 
 .invoice-row {

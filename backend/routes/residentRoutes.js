@@ -3,12 +3,13 @@ const express = require("express");
 const mongoose = require("mongoose");
 const Resident = require("../models/Resident");
 const upload = require("../middleware/upload"); // <-- Multer middleware
+const auth = require("../middleware/auth");
 const router = express.Router();
 
 // =========================
 // ADD RESIDENT (with photo)
 // =========================
-router.post("/", upload.single("photo"), async (req, res) => {
+router.post("/", auth.requireRole("admin", "medtech", "rn"), upload.single("photo"), async (req, res) => {
   console.log("POST /residents received", {
     body: req.body,
     file: req.file ? { originalname: req.file.originalname, filename: req.file.filename } : null,
@@ -33,8 +34,12 @@ router.post("/", upload.single("photo"), async (req, res) => {
 // =========================
 // GET ALL RESIDENTS
 // =========================
-router.get("/", async (req, res) => {
+router.get("/", auth.requireRole("admin", "medtech", "rn", "poa"), async (req, res) => {
   try {
+    if (req.user.role === "poa") {
+      const resident = await Resident.findById(req.user.residentId);
+      return res.json(resident ? [resident] : []);
+    }
     const residents = await Resident.find();
     res.json(residents);
   } catch (err) {
@@ -45,8 +50,11 @@ router.get("/", async (req, res) => {
 // =========================
 // GET SINGLE RESIDENT
 // =========================
-router.get("/:id", async (req, res) => {
+router.get("/:id", auth.requireRole("admin", "medtech", "rn", "poa"), async (req, res) => {
   try {
+    if (req.user.role === "poa" && String(req.user.residentId) !== String(req.params.id)) {
+      return res.status(403).json({ error: "Access denied" });
+    }
     const resident = await Resident.findById(req.params.id);
     res.json(resident);
   } catch (err) {
@@ -57,7 +65,7 @@ router.get("/:id", async (req, res) => {
 // =========================
 // DELETE RESIDENT
 // =========================
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", auth.requireRole("admin", "medtech", "rn"), async (req, res) => {
   try {
     await Resident.findByIdAndDelete(req.params.id);
     res.json({ message: "Resident deleted" });

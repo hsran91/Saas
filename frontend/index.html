@@ -30,6 +30,12 @@
             <button onclick="showPage('billingPage')" class="nav-item" id="nav-billing">
                 Billing
             </button>
+            <button onclick="showPage('registerPage')" class="nav-item" id="nav-register" style="display:none;">
+                Register
+            </button>
+            <button onclick="showPage('alertsPage')" class="nav-item" id="nav-alerts">
+                Alerts
+            </button>
         </nav>
     </aside>
 
@@ -38,7 +44,8 @@
         <header class="top-bar">
             <h1>eMAR Clinical Console</h1>
             <div class="top-bar-right">
-                <span class="badge">Dark Mode</span>
+                <span id="currentUserRoleBadge" class="badge"></span>
+                <button id="logoutButton" type="button" class="secondary-btn small-btn">Logout</button>
             </div>
         </header>
 
@@ -46,12 +53,18 @@
             <h2 class="page-title">Dashboard</h2>
             <div class="grid">
                 <div class="card">
-                    <h3>Quick Stats</h3>
-                    <p>Monitor residents, medications, and MAR activity at a glance.</p>
+                    <div class="card-header">
+                        <h3>Quick Stats</h3>
+                        <button id="editQuickStatsButton" class="secondary-btn small-btn" onclick="openDashboardEditModal()" style="display:none;">Edit</button>
+                    </div>
+                    <p id="quickStatsText">Monitor residents, medications, and MAR activity at a glance.</p>
                 </div>
                 <div class="card">
-                    <h3>Today’s Focus</h3>
-                    <p>Use the Residents and MAR sections to manage today’s passes.</p>
+                    <div class="card-header">
+                        <h3>Today’s Focus</h3>
+                        <button id="editTodaysFocusButton" class="secondary-btn small-btn" onclick="openDashboardEditModal()" style="display:none;">Edit</button>
+                    </div>
+                    <p id="todaysFocusText">Use the Residents and MAR sections to manage today’s passes.</p>
                 </div>
             </div>
         </section>
@@ -59,7 +72,7 @@
         <section id="residentsPage" class="page" style="display:none;">
             <div class="page-header-row">
                 <h2 class="page-title">Residents</h2>
-                <button class="primary-btn" onclick="openAddResidentModal()">Add Resident</button>
+                <button id="addResidentButton" class="primary-btn" onclick="openAddResidentModal()">Add Resident</button>
             </div>
 
             <div id="residentList" class="resident-grid">
@@ -74,7 +87,16 @@
 
         <section id="marPage" class="page" style="display:none;">
             <h2 class="page-title">MAR Log</h2>
-            <p class="muted">MAR entries are visible per resident in their profile.</p>
+            <div class="section-header-row">
+                <p class="muted">Recent MAR entries across residents. Click a resident in the Residents page to view details.</p>
+                <div class="section-header-row-actions">
+                    <button class="secondary-btn" onclick="loadGlobalMarLog()">Refresh</button>
+                    <button class="primary-btn" onclick="showPage('residentsPage')">Open Residents</button>
+                </div>
+            </div>
+            <div id="globalMarContainer" class="mar-log">
+                <p class="muted">No MAR entries yet. Use the Residents page to create entries.</p>
+            </div>
         </section>
 
         <section id="billingPage" class="page" style="display:none;">
@@ -85,9 +107,71 @@
                         <button class="secondary-btn" onclick="openPayInvoicePanel()">Pay Now</button>
                         <button class="primary-btn" onclick="loadBillingPage()">Refresh</button>
                     </div>
+                </div>
+                <div id="billingInvoiceList" class="invoice-list">
+                    <p class="muted">No invoices yet.</p>
+                </div>
+        </section>
+
+        <section id="alertsPage" class="page" style="display:none;">
+            <h2 class="page-title">Alerts</h2>
+            <div class="section-header-row">
+                <p class="muted">View recent alerts across all residents from the last 72 hours.</p>
+                <div class="section-header-row-actions">
+                    <button class="secondary-btn" onclick="loadGlobalAlerts()">Refresh</button>
+                    <button class="secondary-btn" onclick="openAddAlertPanel()">New Alert</button>
+                    <button class="primary-btn" onclick="showPage('residentsPage')">Open Residents</button>
+                </div>
+            </div>
+            <div id="globalAlertsContainer" class="alerts-list">
+                <p class="muted">No alerts yet.</p>
+            </div>
+        </section>
+
+        <section id="registerPage" class="page" style="display:none;">
+            <h2 class="page-title">Register User</h2>
+            <p class="muted">Only admins can create new staff or POA users.</p>
+            <form id="adminRegisterForm" class="form-grid">
+                <div class="form-group full-width">
+                    <label for="regName">Full Name</label>
+                    <input type="text" id="regName" required>
+                </div>
+                <div class="form-group full-width">
+                    <label for="regUsername">Username</label>
+                    <input type="text" id="regUsername" required>
+                </div>
+                <div class="form-group full-width">
+                    <label for="regEmail">Email</label>
+                    <input type="email" id="regEmail" required>
+                </div>
+                <div class="form-group full-width">
+                    <label for="regPassword">Password</label>
+                    <input type="password" id="regPassword" required>
+                </div>
+                <div class="form-group full-width">
+                    <label for="regRole">Role</label>
+                    <select id="regRole" required>
+                        <option value="admin">Admin</option>
+                        <option value="medtech">MedTech</option>
+                        <option value="rn">Nurse (RN)</option>
+                        <option value="poa">Resident / POA</option>
+                    </select>
+                </div>
+                <div class="form-group full-width" id="registerResidentIdGroup" style="display:none;">
+                    <label for="regResidentId">Resident ID</label>
+                    <input type="text" id="regResidentId" placeholder="Resident ObjectId for POA">
+                </div>
+                <div id="adminRegisterError" class="error-text" style="display:none;"></div>
+                <div class="form-actions full-width">
+                    <button type="submit" class="primary-btn">Register</button>
+                </div>
+            </form>
         </section>
 
         <!-- RESIDENT PROFILE PANEL -->
+        
+            
+
         <section id="residentProfile" class="resident-profile" style="display:none;">
             <div class="resident-header">
                 <img id="residentPhoto" class="resident-photo-large" src="images/placeholder.svg" alt="Resident photo">
@@ -100,7 +184,7 @@
             <div class="resident-tabs">
                 <button onclick="showResidentTab('medsTab')" class="active-tab">Medications</button>
                 <button onclick="showResidentTab('marTab')">MAR Log</button>
-                <button onclick="showResidentTab('billingTab')">Billing</button>
+                <button id="residentBillingTabButton" onclick="showResidentTab('billingTab')">Billing</button>
             </div>
 
             <div id="medsTab" class="resident-tab">
@@ -130,8 +214,8 @@
                 <div class="section-header-row">
                     <h3>Invoices & Bill Pay <span id="residentInvoiceCount" class="invoice-badge"></span></h3>
                     <div class="section-header-row-actions">
-                        <button class="secondary-btn" onclick="openPayInvoicePanel()">Pay Now</button>
-                        <button class="primary-btn" onclick="openAddInvoicePanel()">New Invoice</button>
+                        <button id="residentPayInvoiceButton" class="secondary-btn" onclick="openPayInvoicePanel()">Pay Now</button>
+                        <button id="residentNewInvoiceButton" class="primary-btn" onclick="openAddInvoicePanel()">New Invoice</button>
                     </div>
                 </div>
                 <div id="invoiceSummary" class="invoice-summary">
@@ -268,8 +352,50 @@
                     </div>
                 </form>
             </aside>
+
         </section>
     </main>
+
+    <aside id="addAlertPanel" class="side-panel" style="display:none;">
+        <div class="side-panel-header">
+            <h3>New Alert</h3>
+            <button class="icon-btn" onclick="closeAddAlertPanel()">✕</button>
+        </div>
+        <form id="addAlertForm" class="form-grid">
+            <div class="form-group full-width">
+                <label for="alertResidentSelect">Resident</label>
+                <select id="alertResidentSelect" required>
+                    <option value="">Select a resident</option>
+                </select>
+            </div>
+            <div class="form-group full-width">
+                <label for="alertType">Alert Type</label>
+                <select id="alertType" required>
+                    <option value="incident">Incident</option>
+                    <option value="fall">Fall</option>
+                    <option value="behavior">Behavior</option>
+                    <option value="clinical">Clinical</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+            <div class="form-group full-width">
+                <label for="alertNotes">Notes</label>
+                <textarea id="alertNotes" rows="4"></textarea>
+            </div>
+            <div class="form-group">
+                <label for="alertStaffName">Submitted By</label>
+                <input id="alertStaffName" type="text" placeholder="Staff name" readonly>
+            </div>
+            <div class="form-group">
+                <label for="alertSubmittedAt">Submitted At</label>
+                <input id="alertSubmittedAt" type="text" placeholder="Submission time" readonly>
+            </div>
+            <div class="form-actions full-width">
+                <button type="button" class="secondary-btn" onclick="closeAddAlertPanel()">Cancel</button>
+                <button type="submit" class="primary-btn">Submit Alert</button>
+            </div>
+        </form>
+    </aside>
 </div>
 
 <!-- ADD RESIDENT MODAL -->
@@ -318,6 +444,29 @@
             <div class="form-actions full-width">
                 <button type="button" class="secondary-btn" onclick="cancelHeldReasonPrompt()">Cancel</button>
                 <button type="submit" class="primary-btn">Save Reason</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="dashboardEditModal" class="modal-backdrop" style="display:none;">
+    <div class="modal">
+        <div class="modal-header">
+            <h2>Edit Dashboard Content</h2>
+            <button class="icon-btn" onclick="closeDashboardEditModal()">✕</button>
+        </div>
+        <form id="dashboardEditForm" class="form-grid">
+            <div class="form-group full-width">
+                <label for="dashboardQuickStats">Quick Stats</label>
+                <textarea id="dashboardQuickStats" rows="4" required></textarea>
+            </div>
+            <div class="form-group full-width">
+                <label for="dashboardTodaysFocus">Today’s Focus</label>
+                <textarea id="dashboardTodaysFocus" rows="4" required></textarea>
+            </div>
+            <div class="form-actions full-width">
+                <button type="button" class="secondary-btn" onclick="closeDashboardEditModal()">Cancel</button>
+                <button type="submit" class="primary-btn">Save Changes</button>
             </div>
         </form>
     </div>

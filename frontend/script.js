@@ -5,8 +5,175 @@
 const API_BASE = window.location.protocol === "file:" ? "http://localhost:5000" : "";
 let residents = [];
 let currentResidentId = null;
+let currentUser = null;
 const medicationDraftStatus = new Map();
 let passFinalized = false;
+
+function getToken() {
+    return localStorage.getItem("authToken");
+}
+
+function saveToken(token) {
+    localStorage.setItem("authToken", token);
+    setUserFromToken(token);
+}
+
+function clearAuth() {
+    localStorage.removeItem("authToken");
+    currentUser = null;
+    window.location.href = "login.html";
+}
+
+function parseJwt(token) {
+    try {
+        const payload = token.split(".")[1];
+        const decoded = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
+        return JSON.parse(decodeURIComponent(decoded.split("").map(function(c) {
+            return "%" + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join("")));
+    } catch (err) {
+        return null;
+    }
+}
+
+function setUserFromToken(token) {
+    currentUser = parseJwt(token);
+    updateRoleUI();
+}
+
+function getAuthHeaders() {
+    const token = getToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function authFetch(url, options = {}) {
+    const headers = {
+        ...(options.headers || {}),
+        ...getAuthHeaders(),
+    };
+
+    if (!(options.body instanceof FormData) && !headers["Content-Type"]) {
+        headers["Content-Type"] = "application/json";
+    }
+
+    return fetch(url, { ...options, headers }).then(async res => {
+        if (res.status === 401) {
+            clearAuth();
+            throw new Error("Session expired");
+        }
+        if (!res.ok) {
+            const payload = await res.json().catch(() => ({}));
+            throw new Error(payload.error || payload.message || "Request failed");
+        }
+        return res.json();
+    });
+}
+
+function updateRoleUI() {
+    const badge = document.getElementById("currentUserRoleBadge");
+    const logoutButton = document.getElementById("logoutButton");
+    const billNav = document.getElementById("nav-billing");
+    const registerNav = document.getElementById("nav-register");
+    const addResidentBtn = document.getElementById("addResidentButton");
+    const residentBillingTabButton = document.getElementById("residentBillingTabButton");
+    const residentPayInvoiceButton = document.getElementById("residentPayInvoiceButton");
+    const residentNewInvoiceButton = document.getElementById("residentNewInvoiceButton");
+    const editQuickStatsButton = document.getElementById("editQuickStatsButton");
+    const editTodaysFocusButton = document.getElementById("editTodaysFocusButton");
+
+    if (!currentUser) {
+        if (badge) badge.textContent = "";
+        if (logoutButton) logoutButton.style.display = "none";
+        if (billNav) billNav.style.display = "none";
+        if (registerNav) registerNav.style.display = "none";
+        if (addResidentBtn) addResidentBtn.style.display = "none";
+        if (residentBillingTabButton) residentBillingTabButton.style.display = "none";
+        if (residentPayInvoiceButton) residentPayInvoiceButton.style.display = "none";
+        if (residentNewInvoiceButton) residentNewInvoiceButton.style.display = "none";
+        if (editQuickStatsButton) editQuickStatsButton.style.display = "none";
+        if (editTodaysFocusButton) editTodaysFocusButton.style.display = "none";
+        return;
+    }
+
+    if (badge) badge.textContent = `${currentUser.name || "User"} (${currentUser.role})`;
+    if (logoutButton) logoutButton.style.display = "inline-block";
+
+    if (currentUser.role === "admin") {
+        if (billNav) billNav.style.display = "block";
+        if (registerNav) registerNav.style.display = "inline-block";
+        if (addResidentBtn) addResidentBtn.style.display = "inline-block";
+        if (residentBillingTabButton) residentBillingTabButton.style.display = "inline-block";
+        if (residentPayInvoiceButton) residentPayInvoiceButton.style.display = "inline-block";
+        if (residentNewInvoiceButton) residentNewInvoiceButton.style.display = "inline-block";
+        if (editQuickStatsButton) editQuickStatsButton.style.display = "inline-block";
+        if (editTodaysFocusButton) editTodaysFocusButton.style.display = "inline-block";
+    } else {
+        if (registerNav) registerNav.style.display = "none";
+        if (billNav) billNav.style.display = "none";
+        if (addResidentBtn) addResidentBtn.style.display = currentUser.role === "medtech" || currentUser.role === "rn" ? "inline-block" : "none";
+        if (residentBillingTabButton) residentBillingTabButton.style.display = currentUser.role === "poa" ? "inline-block" : "none";
+        if (residentPayInvoiceButton) residentPayInvoiceButton.style.display = currentUser.role === "poa" ? "inline-block" : "none";
+        if (residentNewInvoiceButton) residentNewInvoiceButton.style.display = "none";
+        if (editQuickStatsButton) editQuickStatsButton.style.display = "none";
+        if (editTodaysFocusButton) editTodaysFocusButton.style.display = "none";
+    }
+}
+
+function logout() {
+    localStorage.removeItem("authToken");
+    window.location.href = "login.html";
+}
+
+function requireLogin() {
+    const token = getToken();
+    if (!token) {
+        window.location.href = "login.html";
+        return false;
+    }
+    if (!currentUser) {
+        setUserFromToken(token);
+    }
+    return true;
+}
+
+function initApp() {
+    if (!requireLogin()) return;
+    updateRoleUI();
+    loadDashboardSettings();
+    loadResidentCards();
+}
+
+window.addEventListener("DOMContentLoaded", () => {
+    const logoutButton = document.getElementById("logoutButton");
+    if (logoutButton) {
+        logoutButton.addEventListener("click", logout);
+    }
+
+    const dashboardEditForm = document.getElementById("dashboardEditForm");
+    if (dashboardEditForm) {
+        dashboardEditForm.addEventListener("submit", function (e) {
+            e.preventDefault();
+            saveDashboardSettings();
+        });
+    }
+
+    const adminRegisterForm = document.getElementById("adminRegisterForm");
+    const roleSelect = document.getElementById("regRole");
+    if (adminRegisterForm) {
+        adminRegisterForm.addEventListener("submit", registerNewUser);
+    }
+    if (roleSelect) {
+        const registerResidentIdGroup = document.getElementById("registerResidentIdGroup");
+        if (registerResidentIdGroup) {
+            roleSelect.addEventListener("change", () => {
+                registerResidentIdGroup.style.display = roleSelect.value === "poa" ? "block" : "none";
+            });
+            registerResidentIdGroup.style.display = roleSelect.value === "poa" ? "block" : "none";
+        }
+    }
+
+    initApp();
+});
 
 function setPassFinalized(value) {
     passFinalized = value;
@@ -19,6 +186,129 @@ function setPassFinalized(value) {
     if (finalizeBtn) {
         finalizeBtn.disabled = value;
     }
+}
+
+function openDashboardEditModal() {
+    const modal = document.getElementById("dashboardEditModal");
+    const quickStatsInput = document.getElementById("dashboardQuickStats");
+    const focusInput = document.getElementById("dashboardTodaysFocus");
+    if (!modal || !quickStatsInput || !focusInput) return;
+
+    quickStatsInput.value = document.getElementById("quickStatsText")?.textContent || "";
+    focusInput.value = document.getElementById("todaysFocusText")?.textContent || "";
+    modal.style.display = "flex";
+}
+
+function closeDashboardEditModal() {
+    const modal = document.getElementById("dashboardEditModal");
+    if (modal) modal.style.display = "none";
+}
+
+function loadDashboardSettings() {
+    authFetch(`${API_BASE}/dashboard`)
+        .then(settings => {
+            const quickStatsText = document.getElementById("quickStatsText");
+            const todaysFocusText = document.getElementById("todaysFocusText");
+            if (quickStatsText) quickStatsText.textContent = settings.quickStats || "";
+            if (todaysFocusText) todaysFocusText.textContent = settings.todaysFocus || "";
+        })
+        .catch(err => {
+            console.error("Error loading dashboard settings:", err);
+        });
+}
+
+function saveDashboardSettings() {
+    const quickStatsInput = document.getElementById("dashboardQuickStats");
+    const focusInput = document.getElementById("dashboardTodaysFocus");
+    if (!quickStatsInput || !focusInput) return;
+
+    authFetch(`${API_BASE}/dashboard`, {
+        method: "PATCH",
+        body: JSON.stringify({
+            quickStats: quickStatsInput.value.trim(),
+            todaysFocus: focusInput.value.trim(),
+        }),
+    })
+        .then(settings => {
+            const quickStatsText = document.getElementById("quickStatsText");
+            const todaysFocusText = document.getElementById("todaysFocusText");
+            if (quickStatsText) quickStatsText.textContent = settings.quickStats || "";
+            if (todaysFocusText) todaysFocusText.textContent = settings.todaysFocus || "";
+            closeDashboardEditModal();
+            alert("Dashboard content updated.");
+        })
+        .catch(err => {
+            console.error("Error saving dashboard settings:", err);
+            alert(err.message || "Unable to save dashboard content.");
+        });
+}
+
+function registerNewUser(event) {
+    event.preventDefault();
+    const name = document.getElementById("regName")?.value.trim();
+    const username = document.getElementById("regUsername")?.value.trim();
+    const email = document.getElementById("regEmail")?.value.trim();
+    const password = document.getElementById("regPassword")?.value.trim();
+    const role = document.getElementById("regRole")?.value;
+    const residentId = document.getElementById("regResidentId")?.value.trim();
+    const errorBox = document.getElementById("adminRegisterError");
+
+    if (errorBox) {
+        errorBox.style.display = "none";
+        errorBox.textContent = "";
+    }
+
+    if (!name || !username || !email || !password || !role) {
+        if (errorBox) {
+            errorBox.textContent = "All fields except Resident ID are required.";
+            errorBox.style.display = "block";
+        }
+        return;
+    }
+
+    const rolePrefixes = {
+        admin: "adm",
+        medtech: "med",
+        rn: "med",
+        poa: "res"
+    };
+
+    if (!username.startsWith(rolePrefixes[role])) {
+        if (errorBox) {
+            errorBox.textContent = `Username must start with ${rolePrefixes[role]} for role ${role}.`;
+            errorBox.style.display = "block";
+        }
+        return;
+    }
+
+    const payload = { name, username, email, password, role };
+    if (role === "poa") {
+        if (!residentId) {
+            if (errorBox) {
+                errorBox.textContent = "Resident ID is required for POA users.";
+                errorBox.style.display = "block";
+            }
+            return;
+        }
+        payload.residentId = residentId;
+    }
+
+    authFetch(`${API_BASE}/auth/register`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+    })
+        .then(() => {
+            alert("User registered successfully.");
+            const adminRegisterForm = document.getElementById("adminRegisterForm");
+            if (adminRegisterForm) adminRegisterForm.reset();
+        })
+        .catch(err => {
+            console.error("Error registering user:", err);
+            if (errorBox) {
+                errorBox.textContent = err.message || "Unable to register user.";
+                errorBox.style.display = "block";
+            }
+        });
 }
 
 // =========================
@@ -40,6 +330,8 @@ function showPage(pageId) {
     if (pageId === "medicationsPage") document.getElementById("nav-meds").classList.add("active-nav");
     if (pageId === "marPage") document.getElementById("nav-mar").classList.add("active-nav");
     if (pageId === "billingPage") document.getElementById("nav-billing").classList.add("active-nav");
+    if (pageId === "registerPage") document.getElementById("nav-register").classList.add("active-nav");
+    if (pageId === "alertsPage") document.getElementById("nav-alerts").classList.add("active-nav");
 
     // Hide resident profile when switching main pages
     const profile = document.getElementById("residentProfile");
@@ -51,7 +343,23 @@ function showPage(pageId) {
     }
 
     if (pageId === "billingPage") {
+        if (!currentUser || !["admin", "poa"].includes(currentUser.role)) {
+            showPage("dashboardPage");
+            return;
+        }
         loadBillingPage();
+    }
+    if (pageId === "registerPage") {
+        if (!currentUser || currentUser.role !== "admin") {
+            showPage("dashboardPage");
+            return;
+        }
+    }
+    if (pageId === "marPage") {
+        loadGlobalMarLog();
+    }
+    if (pageId === "alertsPage") {
+        loadGlobalAlerts();
     }
 }
 
@@ -104,8 +412,7 @@ if (photoInput) {
 // =========================
 
 function loadResidentCards() {
-    return fetch(`${API_BASE}/residents`)
-        .then(res => res.json())
+    return authFetch(`${API_BASE}/residents`)
         .then(data => {
             residents = data;
             const container = document.getElementById("residentList");
@@ -186,22 +493,12 @@ function saveNewResident() {
         saveBtn.textContent = "Saving...";
     }
 
-    fetch(`${API_BASE}/residents`, {
+    console.debug("Saving resident to:", `${API_BASE}/residents`);
+    authFetch(`${API_BASE}/residents`, {
         method: "POST",
         body: formData
     })
-        .then(async res => {
-            const payload = await res.json().catch(async () => {
-                const text = await res.text();
-                return { error: text || "Unknown response" };
-            });
-
-            if (!res.ok) {
-                throw new Error(payload.error || payload.message || "Failed to save resident");
-            }
-
-            return payload;
-        })
+        .then(payload => payload)
         .then(savedResident => {
             closeAddResidentModal();
 
@@ -211,7 +508,7 @@ function saveNewResident() {
         })
         .catch(err => {
             console.error("Error saving resident:", err);
-            alert(`Error saving resident: ${err.message}`);
+            alert(`Error saving resident: ${err.message || err}`);
         })
         .finally(() => {
             if (saveBtn) {
@@ -391,6 +688,193 @@ function closePayInvoicePanel() {
     if (form) form.reset();
 }
 
+// =========================
+// ALERTS (72h) UI
+// =========================
+
+function openAddAlertPanel() {
+    console.debug("openAddAlertPanel invoked");
+    populateAlertResidentSelect();
+    const panel = document.getElementById("addAlertPanel");
+    const staffInput = document.getElementById("alertStaffName");
+    const notesInput = document.getElementById("alertNotes");
+    const submittedAtInput = document.getElementById("alertSubmittedAt");
+    if (panel) {
+        panel.style.display = "flex";
+        panel.style.zIndex = 1100;
+    }
+    if (staffInput) {
+        staffInput.value = currentUser?.name || "";
+    }
+    if (submittedAtInput) {
+        submittedAtInput.value = new Date().toLocaleString();
+    }
+    if (notesInput) {
+        notesInput.focus();
+    }
+}
+
+function closeAddAlertPanel() {
+    const panel = document.getElementById("addAlertPanel");
+    if (panel) panel.style.display = "none";
+    const form = document.getElementById("addAlertForm");
+    if (form) form.reset();
+}
+
+function populateAlertResidentSelect() {
+    const select = document.getElementById("alertResidentSelect");
+    if (!select) return;
+
+    const renderOptions = () => {
+        select.innerHTML = `<option value="">Select a resident</option>`;
+        residents.forEach(resident => {
+            const name = `${resident.firstName} ${resident.lastName}`.trim();
+            select.innerHTML += `<option value="${resident._id}">${name} ${resident.roomNumber ? `(${resident.roomNumber})` : ""}</option>`;
+        });
+
+        if (currentResidentId) {
+            select.value = currentResidentId;
+        }
+    };
+
+    if (!residents.length) {
+        loadResidentCards().then(renderOptions).catch(err => {
+            console.error("Error loading residents for alert select:", err);
+        });
+    } else {
+        renderOptions();
+    }
+}
+
+function loadAlerts(residentId) {
+    if (!residentId) return;
+
+    authFetch(`${API_BASE}/alerts/${residentId}?hours=72`)
+        .then(alerts => {
+            const container = document.getElementById("alertsListContainer");
+            if (!container) return;
+
+            container.innerHTML = "";
+
+            if (!alerts.length) {
+                container.innerHTML = `<p class=\"muted\">No alerts in the last 72 hours.</p>`;
+                return;
+            }
+
+            alerts.forEach(a => {
+                const div = document.createElement("div");
+                div.className = "alert-entry";
+                const timeText = new Date(a.createdAt || a.alertTime).toLocaleString();
+                const byText = a.userName || a.userId || "Unknown";
+
+                div.innerHTML = `
+                    <div class="alert-row">
+                        <div>
+                            <strong>${a.type}</strong>
+                            <p>${a.notes || ""}</p>
+                        </div>
+                        <div class="alert-meta">
+                            <p class="muted">${timeText}</p>
+                            <p class="muted">By: ${byText}</p>
+                        </div>
+                    </div>
+                `;
+
+                container.appendChild(div);
+            });
+        })
+        .catch(err => console.error("Error loading alerts:", err));
+}
+
+function loadGlobalAlerts() {
+    authFetch(`${API_BASE}/alerts/recent/all?hours=72`)
+        .then(alerts => {
+            const container = document.getElementById("globalAlertsContainer");
+            if (!container) return;
+
+            container.innerHTML = "";
+
+            if (!alerts.length) {
+                container.innerHTML = `<p class="muted">No alerts in the last 72 hours.</p>`;
+                return;
+            }
+
+            alerts.forEach(a => {
+                const div = document.createElement("div");
+                div.className = "alert-entry";
+                const timeText = new Date(a.createdAt || a.alertTime).toLocaleString();
+                const residentName = a.residentId ? `${a.residentId.firstName} ${a.residentId.lastName} (${a.residentId.roomNumber || "—"})` : "Unknown resident";
+                const byText = a.userName || a.userId || "Unknown";
+
+                div.innerHTML = `
+                    <div class="alert-row">
+                        <div>
+                            <strong>${a.type}</strong>
+                            <p>${a.notes || ""}</p>
+                            <p class="muted">${residentName}</p>
+                        </div>
+                        <div class="alert-meta">
+                            <p class="muted">${timeText}</p>
+                            <p class="muted">By: ${byText}</p>
+                        </div>
+                    </div>
+                `;
+
+                div.onclick = () => {
+                    if (a.residentId && a.residentId._id) {
+                        showPage("residentsPage");
+                        openResidentProfile(a.residentId._id);
+                    }
+                };
+                div.style.cursor = "pointer";
+                container.appendChild(div);
+            });
+        })
+        .catch(err => console.error("Error loading global alerts:", err));
+}
+
+const addAlertForm = document.getElementById("addAlertForm");
+if (addAlertForm) {
+    addAlertForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+
+        const residentId = document.getElementById("alertResidentSelect")?.value || currentResidentId;
+        const type = document.getElementById("alertType")?.value || "incident";
+        const notes = document.getElementById("alertNotes")?.value || "";
+        const staffInput = document.getElementById("alertStaffName");
+        const staffName = currentUser?.name || staffInput?.value || "Unknown";
+        const staffId = currentUser?.id || currentUser?._id || undefined;
+
+        if (!residentId) {
+            alert("Please select a resident for this alert.");
+            return;
+        }
+
+        authFetch(`${API_BASE}/alerts`, {
+            method: "POST",
+            body: JSON.stringify({ residentId, type, notes, userName: staffName, userId: staffId })
+        })
+            .then(created => {
+                closeAddAlertPanel();
+                currentResidentId = residentId;
+
+                const residentProfileVisible = document.getElementById("residentProfile")?.style.display === "block";
+                if (residentProfileVisible) {
+                    showResidentTab("alertsTab");
+                    loadAlerts(currentResidentId);
+                } else {
+                    loadGlobalAlerts();
+                }
+
+                alert("Alert saved.");
+            })
+            .catch(err => {
+                console.error("Error creating alert:", err);
+                alert(err.message || "Unable to save alert.");
+            });
+    });
+}
+
 function populatePayResidentSelect() {
     const select = document.getElementById("payResidentSelect");
     if (!select) return;
@@ -491,8 +975,7 @@ function setBillingPendingCount(count) {
 function loadBilling(residentId) {
     if (!residentId) return;
 
-    fetch(`${API_BASE}/invoices/${residentId}`)
-        .then(res => res.json())
+    authFetch(`${API_BASE}/invoices/${residentId}`)
         .then(invoices => {
             renderInvoiceList(Array.isArray(invoices) ? invoices : []);
             setResidentInvoiceCount(Array.isArray(invoices) ? invoices.filter(i => i.status === "pending").length : 0);
@@ -503,8 +986,7 @@ function loadBilling(residentId) {
 }
 
 function loadBillingPage() {
-    fetch(`${API_BASE}/invoices`)
-        .then(res => res.json())
+    authFetch(`${API_BASE}/invoices`)
         .then(invoices => {
             const invoiceArray = Array.isArray(invoices) ? invoices : [];
             renderBillingPageInvoices(invoiceArray);
@@ -521,7 +1003,7 @@ async function payInvoice(invoiceId) {
     if (!invoiceId) return;
 
     try {
-        const response = await fetch(`${API_BASE}/invoices/${invoiceId}/pay`, { method: "PATCH" });
+        const response = await fetch(`${API_BASE}/invoices/${invoiceId}/pay`, { method: "PATCH", headers: getAuthHeaders() });
         if (!response.ok) {
             const error = await response.json().catch(() => ({}));
             throw new Error(error.error || "Unable to update invoice status");
@@ -543,7 +1025,8 @@ function deleteResident(id) {
     if (!confirm("Delete this resident?")) return;
 
     fetch(`${API_BASE}/residents/${id}`, {
-        method: "DELETE"
+        method: "DELETE",
+        headers: getAuthHeaders()
     })
         .then(res => res.json())
         .then(() => {
@@ -563,7 +1046,7 @@ function deleteResident(id) {
 // =========================
 
 function loadMedications(residentId) {
-    fetch(`${API_BASE}/medications/${residentId}`)
+    authFetch(`${API_BASE}/medications/${residentId}`)
         .then(res => res.json())
         .then(meds => {
             const medList = document.getElementById("med-list");
@@ -718,7 +1201,7 @@ function saveMedicationPass() {
         promises.push(
             fetch(`${API_BASE}/mar`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
                 body: JSON.stringify({
                     residentId: currentResidentId,
                     medicationId: medId,
@@ -793,7 +1276,7 @@ if (addMedForm) {
 
         fetch(`${API_BASE}/medications`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
             body: JSON.stringify(medData)
         })
             .then(res => res.json())
@@ -824,18 +1307,10 @@ if (addInvoiceForm) {
             notes: document.getElementById("invoiceNotes")?.value || ""
         };
 
-        fetch(`${API_BASE}/invoices`, {
+        authFetch(`${API_BASE}/invoices`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
             body: JSON.stringify(invoiceData)
         })
-            .then(async res => {
-                if (!res.ok) {
-                    const payload = await res.json().catch(() => ({}));
-                    throw new Error(payload.error || "Failed to create invoice");
-                }
-                return res.json();
-            })
             .then(() => {
                 closeAddInvoicePanel();
                 if (currentResidentId) {
@@ -880,18 +1355,10 @@ if (payInvoiceForm) {
             paymentInfo,
         };
 
-        fetch(`${API_BASE}/invoices`, {
+        authFetch(`${API_BASE}/invoices`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
             body: JSON.stringify(invoiceData)
         })
-            .then(async res => {
-                if (!res.ok) {
-                    const payload = await res.json().catch(() => ({}));
-                    throw new Error(payload.error || "Failed to process payment");
-                }
-                return res.json();
-            })
             .then(() => {
                 closePayInvoicePanel();
                 if (residentId === currentResidentId) {
@@ -915,8 +1382,7 @@ if (payInvoiceForm) {
 // =========================
 
 function loadMarLog(residentId) {
-    fetch(`${API_BASE}/mar/${residentId}`)
-        .then(res => res.json())
+    authFetch(`${API_BASE}/mar/${residentId}`)
         .then(entries => {
             const container = document.getElementById("marLogContainer");
             if (!container) return;
@@ -946,4 +1412,43 @@ function loadMarLog(residentId) {
             });
         })
         .catch(err => console.error("Error loading MAR log:", err));
+}
+
+// Load recent MAR entries across all residents
+function loadGlobalMarLog() {
+    authFetch(`${API_BASE}/mar`)
+        .then(entries => {
+            const container = document.getElementById("globalMarContainer");
+            if (!container) return;
+
+            container.innerHTML = "";
+
+            if (!entries.length) {
+                container.innerHTML = `<p class=\"muted\">No MAR entries yet.</p>`;
+                return;
+            }
+
+            entries.forEach(entry => {
+                const div = document.createElement("div");
+                div.classList.add("mar-entry");
+
+                const medName = entry.medicationId?.name || entry.medicationName || "Medication";
+                const residentName = entry.residentId ? `${entry.residentId.firstName} ${entry.residentId.lastName}` : "Unknown resident";
+                const formattedTime = new Date(entry.actualTime || entry.createdAt || Date.now()).toLocaleString();
+
+                div.innerHTML = `
+                    <strong>${medName} — <small>${residentName} (${entry.residentId?.roomNumber || '—'})</small></strong>
+                    <p>Status: ${entry.status}</p>
+                    ${entry.reason ? `<p>Reason: ${entry.reason}</p>` : ""}
+                    <p class="muted">${formattedTime}</p>
+                `;
+
+                div.onclick = () => {
+                    if (entry.residentId && entry.residentId._id) openResidentProfile(entry.residentId._id);
+                };
+
+                container.appendChild(div);
+            });
+        })
+        .catch(err => console.error("Error loading global MAR log:", err));
 }
