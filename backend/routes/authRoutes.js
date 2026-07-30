@@ -3,6 +3,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const auth = require("../middleware/auth");
 const User = require("../models/User");
+const Resident = require("../models/Resident");
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
@@ -10,14 +11,14 @@ const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
 // REGISTER STAFF
 router.post("/register", auth, auth.requireRole("admin"), async (req, res) => {
   try {
-    const { name, username, email, password, role, residentId } = req.body;
+    const { name, username, email, password, role, residentCode } = req.body;
 
     if (!name || !username || !email || !password || !role) {
       return res.status(400).json({ error: "Name, username, email, password, and role are required" });
     }
 
-    if (role === "poa" && !residentId) {
-      return res.status(400).json({ error: "POA users must be linked to a resident" });
+    if (role === "poa" && !residentCode) {
+      return res.status(400).json({ error: "POA users must be linked to a resident code" });
     }
 
     const isValidUsername = (role, username) => {
@@ -38,6 +39,15 @@ router.post("/register", auth, auth.requireRole("admin"), async (req, res) => {
     if (emailExists) return res.status(400).json({ error: "Email already in use" });
 
     const hashed = await bcrypt.hash(password, 10);
+    let poaResidentId;
+
+    if (role === "poa") {
+      const resident = await Resident.findOne({ residentCode });
+      if (!resident) {
+        return res.status(400).json({ error: "Resident code not found" });
+      }
+      poaResidentId = resident._id;
+    }
 
     const user = await User.create({
       name,
@@ -45,7 +55,7 @@ router.post("/register", auth, auth.requireRole("admin"), async (req, res) => {
       email,
       password: hashed,
       role,
-      residentId: role === "poa" ? residentId : undefined,
+      residentId: role === "poa" ? poaResidentId : undefined,
     });
 
     res.json({ message: "User registered", user: { id: user._id, name: user.name, username: user.username, role: user.role } });

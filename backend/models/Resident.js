@@ -4,6 +4,7 @@ const ResidentSchema = new mongoose.Schema({
   firstName: { type: String, required: true },
   lastName: { type: String, default: "" },
   roomNumber: { type: String },
+  residentCode: { type: String, unique: true },
   photoUrl: { type: String, default: null },
   dob: { type: Date },
   allergies: { type: String },

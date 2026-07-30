@@ -1,6 +1,13 @@
 // =========================
 // GLOBAL STATE
 // =========================
+try {
+    if (typeof window !== 'undefined') {
+        window.__EMAR_SCRIPT_LOADED = (window.__EMAR_SCRIPT_LOADED || 0) + 1;
+    }
+} catch (e) {
+    // ignore
+}
 
 const API_BASE = window.location.protocol === "file:" ? "http://localhost:5000" : "";
 let residents = [];
@@ -8,6 +15,43 @@ let currentResidentId = null;
 let currentUser = null;
 const medicationDraftStatus = new Map();
 let passFinalized = false;
+let currentMedTimeslot = null;
+
+function getCurrentTimeslot(now = new Date()) {
+    const minutes = now.getHours() * 60 + now.getMinutes();
+    const AM_START = 6 * 60; // 06:00
+    const AM_END = 14 * 60; // 14:00
+    const PM_START = 14 * 60; // 14:00
+    const PM_END = 22 * 60 + 30; // 22:30
+    const NOC_START = 22 * 60; // 22:00
+    const NOC_END = 6 * 60; // 06:00 next day
+
+    // Priority to NOC for the overlap window (22:00-22:30)
+    if (minutes >= NOC_START || minutes < NOC_END) return "NOC";
+    if (minutes >= PM_START && minutes < PM_END) return "PM";
+    if (minutes >= AM_START && minutes < AM_END) return "AM";
+    return "AM";
+}
+
+// Expose commonly used functions to `window` for inline onclick handlers
+;(function exposeGlobals() {
+    const names = [
+        'showPage','openAddResidentModal','closeAddResidentModal','saveNewResident',
+        'openDashboardEditModal','closeDashboardEditModal','logout','openAddMedPanel',
+        'closeAddMedPanel','addMedTimeRow','removeMedTimeRow','finalizeMedicationPass',
+        'openPayInvoicePanel','closePayInvoicePanel','openAddInvoicePanel','closeAddInvoicePanel',
+        'openAddAlertPanel','closeAddAlertPanel','openResidentProfile','deleteResident','payInvoice'
+    ];
+
+    names.forEach(name => {
+        try {
+            const fn = eval(name);
+            if (typeof fn === 'function') window[name] = fn;
+        } catch (e) {
+            // ignore missing functions
+        }
+    });
+})();
 
 function getToken() {
     return localStorage.getItem("authToken");
@@ -69,10 +113,23 @@ function authFetch(url, options = {}) {
     });
 }
 
+function escapeHtml(text) {
+    return String(text || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
 function updateRoleUI() {
     const badge = document.getElementById("currentUserRoleBadge");
     const logoutButton = document.getElementById("logoutButton");
+    const dashboardNav = document.getElementById("nav-dashboard");
     const billNav = document.getElementById("nav-billing");
+    const medNav = document.getElementById("nav-meds");
+    // medpass UI removed
+    const billingPageDescription = document.getElementById("billingPageDescription");
     const registerNav = document.getElementById("nav-register");
     const addResidentBtn = document.getElementById("addResidentButton");
     const residentBillingTabButton = document.getElementById("residentBillingTabButton");
@@ -107,6 +164,34 @@ function updateRoleUI() {
         if (residentNewInvoiceButton) residentNewInvoiceButton.style.display = "inline-block";
         if (editQuickStatsButton) editQuickStatsButton.style.display = "inline-block";
         if (editTodaysFocusButton) editTodaysFocusButton.style.display = "inline-block";
+        // medpass nav removed
+    } else if (currentUser.role === "poa") {
+        if (dashboardNav) dashboardNav.style.display = "none";
+        if (registerNav) registerNav.style.display = "none";
+        if (billNav) billNav.style.display = "block";
+        if (medNav) medNav.style.display = "none";
+        if (addResidentBtn) addResidentBtn.style.display = "none";
+        if (residentBillingTabButton) residentBillingTabButton.style.display = "inline-block";
+        if (residentPayInvoiceButton) residentPayInvoiceButton.style.display = "inline-block";
+        if (residentNewInvoiceButton) residentNewInvoiceButton.style.display = "none";
+        if (editQuickStatsButton) editQuickStatsButton.style.display = "none";
+        if (editTodaysFocusButton) editTodaysFocusButton.style.display = "none";
+        if (billingPageDescription) billingPageDescription.style.display = "none";
+        const alertsNav = document.getElementById("nav-alerts");
+        const marNav = document.getElementById("nav-mar");
+        if (alertsNav) alertsNav.style.display = "none";
+        if (marNav) marNav.style.display = "none";
+        // medpass audit nav removed
+        const medsTabButton = document.getElementById("residentMedsTabButton");
+        const marTabButton = document.getElementById("residentMarTabButton");
+        if (medsTabButton) medsTabButton.style.display = "none";
+        if (marTabButton) marTabButton.style.display = "none";
+        const medsTab = document.getElementById("medsTab");
+        const marTab = document.getElementById("marTab");
+        const billingTab = document.getElementById("billingTab");
+        if (medsTab) medsTab.style.display = "none";
+        if (marTab) marTab.style.display = "none";
+        if (billingTab) billingTab.style.display = "block";
     } else {
         if (registerNav) registerNav.style.display = "none";
         if (billNav) billNav.style.display = "none";
@@ -116,6 +201,7 @@ function updateRoleUI() {
         if (residentNewInvoiceButton) residentNewInvoiceButton.style.display = "none";
         if (editQuickStatsButton) editQuickStatsButton.style.display = "none";
         if (editTodaysFocusButton) editTodaysFocusButton.style.display = "none";
+        // medpass nav removed
     }
 }
 
@@ -141,6 +227,41 @@ function initApp() {
     updateRoleUI();
     loadDashboardSettings();
     loadResidentCards();
+    if (currentUser && currentUser.role === "poa") {
+        showPage("billingPage");
+    } else {
+        showPage("dashboardPage");
+    }
+}
+
+// Dashboard settings load/save
+async function loadDashboardSettings() {
+    try {
+        const settings = await authFetch(`${API_BASE}/dashboard`);
+        const quickEl = document.getElementById('quickStatsText');
+        const focusEl = document.getElementById('todaysFocusText');
+        if (quickEl) quickEl.textContent = settings.quickStats || 'Monitor residents, medications, and MAR activity at a glance.';
+        if (focusEl) focusEl.textContent = settings.todaysFocus || 'Use the Residents and MAR sections to manage today\'s passes.';
+    } catch (err) {
+        console.error('Error loading dashboard settings:', err);
+    }
+}
+
+function saveDashboardSettings() {
+    const quick = document.getElementById('dashboardQuickStats')?.value || '';
+    const focus = document.getElementById('dashboardTodaysFocus')?.value || '';
+    authFetch(`${API_BASE}/dashboard`, { method: 'PATCH', body: JSON.stringify({ quickStats: quick, todaysFocus: focus }) })
+        .then(() => {
+            const quickEl = document.getElementById('quickStatsText');
+            const focusEl = document.getElementById('todaysFocusText');
+            if (quickEl) quickEl.textContent = quick;
+            if (focusEl) focusEl.textContent = focus;
+            closeDashboardEditModal();
+        })
+        .catch(err => {
+            console.error('Error saving dashboard settings:', err);
+            alert(err.message || 'Unable to save dashboard settings');
+        });
 }
 
 window.addEventListener("DOMContentLoaded", () => {
@@ -204,45 +325,67 @@ function closeDashboardEditModal() {
     if (modal) modal.style.display = "none";
 }
 
-function loadDashboardSettings() {
-    authFetch(`${API_BASE}/dashboard`)
-        .then(settings => {
-            const quickStatsText = document.getElementById("quickStatsText");
-            const todaysFocusText = document.getElementById("todaysFocusText");
-            if (quickStatsText) quickStatsText.textContent = settings.quickStats || "";
-            if (todaysFocusText) todaysFocusText.textContent = settings.todaysFocus || "";
-        })
-        .catch(err => {
-            console.error("Error loading dashboard settings:", err);
-        });
+async function loadResidentCards() {
+    try {
+        const data = await authFetch(`${API_BASE}/residents`);
+        residents = data || [];
+        const container = document.getElementById("residentList");
+        if (!container) return;
+
+        container.innerHTML = "";
+
+        if (!residents.length) {
+            container.innerHTML = `<p class="muted">No residents yet. Click "Add Resident" to create one.</p>`;
+            return;
+        }
+
+        const slot = currentMedTimeslot || getCurrentTimeslot();
+
+        // For admin/medtech, fetch medications to determine due status
+        const shouldCheckMeds = currentUser && (currentUser.role === "admin" || currentUser.role === "medtech");
+
+        await Promise.all(residents.map(async resident => {
+            const card = document.createElement("div");
+            card.classList.add("resident-card");
+
+            const thumbSrc = resident.photoUrl ? `${API_BASE}${resident.photoUrl}` : "images/placeholder.svg";
+
+            let isDue = false;
+            if (shouldCheckMeds) {
+                try {
+                    const meds = await fetch(`${API_BASE}/medications/${resident._id}`, { headers: getAuthHeaders() }).then(r => r.json()).catch(() => []);
+                    isDue = Array.isArray(meds) && meds.some(m => medIsScheduledForSlot(m, slot));
+                } catch (e) {
+                    console.error("Error checking meds for resident", resident._id, e);
+                }
+            }
+
+            if (isDue) card.classList.add("due");
+            else if (shouldCheckMeds) card.classList.add("no-due");
+
+            const codeHtml = (currentUser && currentUser.role === "admin" && resident.residentCode) ? `<p class="resident-code">Code: ${resident.residentCode}</p>` : "";
+
+            card.innerHTML = `
+                    <div class="resident-card-row">
+                        <img class="resident-thumb" src="${thumbSrc}" alt="${resident.firstName} ${resident.lastName}">
+                        <div class="resident-card-body">
+                            <div class="resident-card-header">
+                                <h3>${resident.firstName} ${resident.lastName}</h3>
+                                <button type="button" class="secondary-btn" onclick="event.stopPropagation(); deleteResident('${resident._id}')">Delete</button>
+                            </div>
+                            <p class="muted">Room ${resident.roomNumber}</p>
+                            ${codeHtml}
+                        </div>
+                    </div>
+                `;
+
+            card.onclick = () => openResidentProfile(resident._id);
+            container.appendChild(card);
+        }));
+    } catch (err) {
+        console.error("Error loading residents:", err);
+    }
 }
-
-function saveDashboardSettings() {
-    const quickStatsInput = document.getElementById("dashboardQuickStats");
-    const focusInput = document.getElementById("dashboardTodaysFocus");
-    if (!quickStatsInput || !focusInput) return;
-
-    authFetch(`${API_BASE}/dashboard`, {
-        method: "PATCH",
-        body: JSON.stringify({
-            quickStats: quickStatsInput.value.trim(),
-            todaysFocus: focusInput.value.trim(),
-        }),
-    })
-        .then(settings => {
-            const quickStatsText = document.getElementById("quickStatsText");
-            const todaysFocusText = document.getElementById("todaysFocusText");
-            if (quickStatsText) quickStatsText.textContent = settings.quickStats || "";
-            if (todaysFocusText) todaysFocusText.textContent = settings.todaysFocus || "";
-            closeDashboardEditModal();
-            alert("Dashboard content updated.");
-        })
-        .catch(err => {
-            console.error("Error saving dashboard settings:", err);
-            alert(err.message || "Unable to save dashboard content.");
-        });
-}
-
 function registerNewUser(event) {
     event.preventDefault();
     const name = document.getElementById("regName")?.value.trim();
@@ -250,7 +393,7 @@ function registerNewUser(event) {
     const email = document.getElementById("regEmail")?.value.trim();
     const password = document.getElementById("regPassword")?.value.trim();
     const role = document.getElementById("regRole")?.value;
-    const residentId = document.getElementById("regResidentId")?.value.trim();
+    const residentCode = document.getElementById("regResidentCode")?.value.trim();
     const errorBox = document.getElementById("adminRegisterError");
 
     if (errorBox) {
@@ -260,7 +403,7 @@ function registerNewUser(event) {
 
     if (!name || !username || !email || !password || !role) {
         if (errorBox) {
-            errorBox.textContent = "All fields except Resident ID are required.";
+            errorBox.textContent = "All fields except Resident Code are required.";
             errorBox.style.display = "block";
         }
         return;
@@ -283,14 +426,14 @@ function registerNewUser(event) {
 
     const payload = { name, username, email, password, role };
     if (role === "poa") {
-        if (!residentId) {
+        if (!residentCode) {
             if (errorBox) {
-                errorBox.textContent = "Resident ID is required for POA users.";
+                errorBox.textContent = "Resident code is required for POA users.";
                 errorBox.style.display = "block";
             }
             return;
         }
-        payload.residentId = residentId;
+        payload.residentCode = residentCode;
     }
 
     authFetch(`${API_BASE}/auth/register`, {
@@ -328,6 +471,7 @@ function showPage(pageId) {
     if (pageId === "dashboardPage") document.getElementById("nav-dashboard").classList.add("active-nav");
     if (pageId === "residentsPage") document.getElementById("nav-residents").classList.add("active-nav");
     if (pageId === "medicationsPage") document.getElementById("nav-meds").classList.add("active-nav");
+    // medpass pages removed
     if (pageId === "marPage") document.getElementById("nav-mar").classList.add("active-nav");
     if (pageId === "billingPage") document.getElementById("nav-billing").classList.add("active-nav");
     if (pageId === "registerPage") document.getElementById("nav-register").classList.add("active-nav");
@@ -342,6 +486,18 @@ function showPage(pageId) {
         loadResidentCards();
     }
 
+    if (pageId === "dashboardPage") {
+        if (currentUser && currentUser.role === "poa") {
+            showPage("billingPage");
+            return;
+        }
+    }
+    if (pageId === "medicationsPage") {
+        if (currentUser && currentUser.role === "poa") {
+            showPage("billingPage");
+            return;
+        }
+    }
     if (pageId === "billingPage") {
         if (!currentUser || !["admin", "poa"].includes(currentUser.role)) {
             showPage("dashboardPage");
@@ -349,6 +505,7 @@ function showPage(pageId) {
         }
         loadBillingPage();
     }
+    // medpass audit page removed
     if (pageId === "registerPage") {
         if (!currentUser || currentUser.role !== "admin") {
             showPage("dashboardPage");
@@ -356,11 +513,20 @@ function showPage(pageId) {
         }
     }
     if (pageId === "marPage") {
+        if (currentUser && currentUser.role === "poa") {
+            showPage("billingPage");
+            return;
+        }
         loadGlobalMarLog();
     }
     if (pageId === "alertsPage") {
+        if (currentUser && currentUser.role === "poa") {
+            showPage("billingPage");
+            return;
+        }
         loadGlobalAlerts();
     }
+    // medpass audit nav removed
 }
 
 // Default page
@@ -410,49 +576,7 @@ if (photoInput) {
 // =========================
 // LOAD RESIDENT CARDS
 // =========================
-
-function loadResidentCards() {
-    return authFetch(`${API_BASE}/residents`)
-        .then(data => {
-            residents = data;
-            const container = document.getElementById("residentList");
-            if (!container) return;
-
-            container.innerHTML = "";
-
-            if (!residents.length) {
-                container.innerHTML = `<p class="muted">No residents yet. Click "Add Resident" to create one.</p>`;
-                return;
-            }
-
-            residents.forEach(resident => {
-                const card = document.createElement("div");
-                card.classList.add("resident-card");
-
-                const thumbSrc = resident.photoUrl ? `${API_BASE}${resident.photoUrl}` : "images/placeholder.svg";
-
-                card.innerHTML = `
-                    <div class="resident-card-row">
-                        <img class="resident-thumb" src="${thumbSrc}" alt="${resident.firstName} ${resident.lastName}">
-                        <div class="resident-card-body">
-                            <div class="resident-card-header">
-                                <h3>${resident.firstName} ${resident.lastName}</h3>
-                                <button type="button" class="secondary-btn" onclick="event.stopPropagation(); deleteResident('${resident._id}')">Delete</button>
-                            </div>
-                            <p class="muted">Room ${resident.roomNumber}</p>
-                        </div>
-                    </div>
-                `;
-
-                card.onclick = () => openResidentProfile(resident._id);
-                container.appendChild(card);
-            });
-        })
-        .catch(err => console.error("Error loading residents:", err));
-}
-
-// Initial load
-loadResidentCards();
+// Resident cards are loaded via `initApp()` after login
 
 // =========================
 // SAVE NEW RESIDENT
@@ -477,11 +601,19 @@ function saveNewResident() {
 
     const [firstName, ...rest] = name.split(" ");
     const lastName = rest.join(" ") || "";
+    const codeInput = document.getElementById("newResidentCode");
+    const residentCode = codeInput ? codeInput.value.trim() : "";
+
+    if (!residentCode) {
+        alert("Resident code is required.");
+        return;
+    }
 
     const formData = new FormData();
     formData.append("firstName", firstName);
     formData.append("lastName", lastName);
     formData.append("roomNumber", room);
+    formData.append("residentCode", residentCode);
 
     if (photoFile) {
         formData.append("photo", photoFile);
@@ -548,17 +680,39 @@ function openResidentProfile(id) {
         }
     }
 
+    const residentCodeInfo = document.getElementById("residentCodeInfo");
+    if (residentCodeInfo) {
+        if (currentUser && currentUser.role === "admin" && resident.residentCode) {
+            residentCodeInfo.textContent = `Resident Code: ${resident.residentCode}`;
+            residentCodeInfo.style.display = "block";
+        } else {
+            residentCodeInfo.style.display = "none";
+        }
+    }
+
     const profile = document.getElementById("residentProfile");
     if (profile) {
         profile.style.display = "block";
         profile.scrollIntoView({ behavior: "smooth" });
     }
 
+    // Default to current timeslot and show Meds
+    currentMedTimeslot = getCurrentTimeslot();
     showResidentTab("medsTab");
     setPassFinalized(false);
-    loadMedications(id);
-    loadMarLog(id);
-    loadBilling(id);
+    if (!currentUser || currentUser.role !== "poa") {
+        loadMedications(id);
+        loadMarLog(id);
+    }
+    if (currentUser && ["admin", "poa"].includes(currentUser.role)) {
+        loadBilling(id);
+    }
+
+    // control visibility of med pass buttons for admin/medtech only
+    const finalizeBtn = document.getElementById("finalizePassButton");
+    const addMedBtn = document.querySelector(".section-header-row-actions button[onclick=\"openAddMedPanel()\"]");
+    if (finalizeBtn) finalizeBtn.style.display = (currentUser && (currentUser.role === "admin" || currentUser.role === "medtech")) ? "inline-block" : "none";
+    if (addMedBtn) addMedBtn.style.display = (currentUser && (currentUser.role === "admin" || currentUser.role === "medtech")) ? "inline-block" : "none";
 
     // ensure add-med panel is closed when opening a profile
     closeAddMedPanel();
@@ -644,6 +798,10 @@ function updateMedTimeButtons() {
 // =========================
 
 function showResidentTab(tabId) {
+    if (currentUser && currentUser.role === "poa" && tabId !== "billingTab") {
+        tabId = "billingTab";
+    }
+
     document.querySelectorAll(".resident-tab").forEach(tab => {
         tab.style.display = "none";
     });
@@ -881,12 +1039,19 @@ function populatePayResidentSelect() {
 
     const renderOptions = () => {
         select.innerHTML = `<option value="">Select a resident</option>`;
-        residents.forEach(resident => {
+        const allowedResidents = currentUser && currentUser.role === "poa"
+            ? residents.filter(resident => String(resident._id) === String(currentUser.residentId))
+            : residents;
+
+        allowedResidents.forEach(resident => {
             const name = `${resident.firstName} ${resident.lastName}`.trim();
             select.innerHTML += `<option value="${resident._id}">${name} ${resident.roomNumber ? `(${resident.roomNumber})` : ""}</option>`;
         });
 
-        if (currentResidentId) {
+        if (currentUser && currentUser.role === "poa") {
+            select.value = currentUser.residentId || currentResidentId || "";
+            select.disabled = true;
+        } else if (currentResidentId) {
             select.value = currentResidentId;
         }
     };
@@ -942,7 +1107,7 @@ function renderInvoiceListInContainer(container, invoices, showResident = false)
                 </div>
             ` : ""}
             <div class="invoice-actions">
-                ${invoice.status === "pending" ? `<button type="button" class="primary-btn" onclick="payInvoice('${invoice._id}')">Mark Paid</button>` : ""}
+                ${invoice.status === "pending" ? `<button type="button" class="primary-btn" onclick="payInvoice('${invoice._id}')">${(currentUser && currentUser.role === "poa") ? 'Pay' : 'Mark Paid'}</button>` : ""}
             </div>
         `;
 
@@ -965,6 +1130,42 @@ function setResidentInvoiceCount(count) {
     badge.classList.toggle("visible", count > 0 || count === 0);
 }
 
+function medIsScheduledForSlot(med, slot) {
+    if (!med) return false;
+    const times = Array.isArray(med.times) ? med.times.map(t => t.toUpperCase()) : [];
+    if (times.includes(slot)) return true;
+    // med.time might be "08:00" or similar
+    if (med.time) {
+        const t = parseTimeToMinutes(med.time);
+        if (t == null) return false;
+        // slot windows (same as getCurrentTimeslot)
+        const AM_START = 6 * 60, AM_END = 14 * 60;
+        const PM_START = 14 * 60, PM_END = 22 * 60 + 30;
+        const NOC_START = 22 * 60, NOC_END = 6 * 60;
+        if (slot === "AM") return t >= AM_START && t < AM_END;
+        if (slot === "PM") return t >= PM_START && t < PM_END;
+        if (slot === "NOC") return (t >= NOC_START) || (t < NOC_END);
+    }
+    return false;
+}
+
+function parseTimeToMinutes(timeStr) {
+    if (!timeStr) return null;
+    // accept HH:MM or H:MM AM/PM formats
+    const m24 = timeStr.match(/^(\d{1,2}):(\d{2})$/);
+    if (m24) return Number(m24[1]) * 60 + Number(m24[2]);
+    const m12 = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (m12) {
+        let h = Number(m12[1]);
+        const mm = Number(m12[2]);
+        const ampm = m12[3].toUpperCase();
+        if (ampm === "PM" && h !== 12) h += 12;
+        if (ampm === "AM" && h === 12) h = 0;
+        return h * 60 + mm;
+    }
+    return null;
+}
+
 function setBillingPendingCount(count) {
     const badge = document.getElementById("billingPendingCount");
     if (!badge) return;
@@ -974,11 +1175,16 @@ function setBillingPendingCount(count) {
 
 function loadBilling(residentId) {
     if (!residentId) return;
+    if (!currentUser || !["admin", "poa"].includes(currentUser.role)) return;
 
     authFetch(`${API_BASE}/invoices/${residentId}`)
         .then(invoices => {
-            renderInvoiceList(Array.isArray(invoices) ? invoices : []);
-            setResidentInvoiceCount(Array.isArray(invoices) ? invoices.filter(i => i.status === "pending").length : 0);
+            const all = Array.isArray(invoices) ? invoices : [];
+            const listToShow = (currentUser && currentUser.role === "poa")
+                ? all.filter(i => i.status === "pending")
+                : all;
+            renderInvoiceList(listToShow);
+            setResidentInvoiceCount(all.filter(i => i.status === "pending").length);
         })
         .catch(err => {
             console.error("Error loading invoices:", err);
@@ -986,7 +1192,13 @@ function loadBilling(residentId) {
 }
 
 function loadBillingPage() {
-    authFetch(`${API_BASE}/invoices`)
+    if (!currentUser) return;
+
+    const endpoint = currentUser.role === "poa"
+        ? `${API_BASE}/invoices/${currentUser.residentId}`
+        : `${API_BASE}/invoices`;
+
+    authFetch(endpoint)
         .then(invoices => {
             const invoiceArray = Array.isArray(invoices) ? invoices : [];
             renderBillingPageInvoices(invoiceArray);
@@ -997,6 +1209,17 @@ function loadBillingPage() {
             const container = document.getElementById("billingInvoiceList");
             if (container) container.innerHTML = `<p class="muted">Unable to load invoices.</p>`;
         });
+}
+
+function formatTimestamp(value) {
+    if (!value) return "";
+    const date = new Date(value);
+    return date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+}
+
+function getResidentNameById(residentId) {
+    const resident = (residents || []).find(r => String(r._id) === String(residentId));
+    return resident ? `${resident.firstName} ${resident.lastName}` : null;
 }
 
 async function payInvoice(invoiceId) {
@@ -1046,8 +1269,11 @@ function deleteResident(id) {
 // =========================
 
 function loadMedications(residentId) {
+    if (currentUser && currentUser.role === "poa") {
+        return;
+    }
+
     authFetch(`${API_BASE}/medications/${residentId}`)
-        .then(res => res.json())
         .then(meds => {
             const medList = document.getElementById("med-list");
             if (!medList) return;
@@ -1059,14 +1285,21 @@ function loadMedications(residentId) {
                 return;
             }
 
-            meds.forEach(med => {
+            const slot = currentMedTimeslot || getCurrentTimeslot();
+
+            const filtered = meds.filter(m => medIsScheduledForSlot(m, slot));
+
+            // if none match the slot, show all but grayed out state is handled on cards
+            const toRender = filtered.length ? filtered : meds;
+
+            toRender.forEach(med => {
                 const li = document.createElement("li");
                 const scheduledTimes = Array.isArray(med.times) && med.times.length ? med.times.join(", ") : "";
                 const timeText = scheduledTimes || med.time || med.frequency || "ASAP";
                 const scheduledTime = Array.isArray(med.times) && med.times.length ? med.times[0] : med.time || med.frequency || "ASAP";
 
                 li.innerHTML = `
-                    <div class="med-card">
+                    <div class="med-card ${filtered.length ? '' : 'muted-med'}">
                         <label class="med-card-checkbox">
                             <input type="checkbox" class="med-given-checkbox" aria-label="Mark ${med.name} given">
                             <span class="custom-check"></span>
@@ -1180,6 +1413,8 @@ if (heldReasonForm) {
         }
     });
 }
+
+// medpass confirmation handlers removed
 
 function saveMedicationPass() {
     const medList = document.getElementById("med-list");

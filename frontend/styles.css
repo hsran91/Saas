@@ -301,6 +301,26 @@ body {
     flex: 1 1 auto;
 }
 
+.resident-code {
+    color: #9ca3af;
+    font-size: 13px;
+}
+
+.resident-card.due {
+    border-color: #16a34a;
+    box-shadow: 0 8px 30px rgba(34,197,94,0.12);
+    transform: translateY(-3px);
+}
+
+.resident-card.no-due {
+    opacity: 0.55;
+    filter: grayscale(40%);
+}
+
+.med-card.muted-med {
+    opacity: 0.6;
+}
+
 .resident-card-header {
     display: flex;
     justify-content: space-between;
@@ -451,6 +471,56 @@ body {
     border: 1px solid #111827;
     border-radius: 12px;
     padding: 16px;
+}
+
+.audit-log {
+    display: grid;
+    gap: 16px;
+}
+
+.audit-card {
+    background: #020617;
+    border: 1px solid #111827;
+    border-radius: 14px;
+    padding: 18px;
+    transition: background .2s ease, transform .15s ease;
+}
+
+.audit-card:hover {
+    background: #111827;
+    transform: translateY(-1px);
+}
+
+.audit-card-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+}
+
+.audit-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 8px;
+    font-size: 13px;
+    color: #9ca3af;
+}
+
+.audit-card-badge {
+    background: #0f172a;
+    border: 1px solid #111827;
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-size: 13px;
+    color: #e5e7eb;
+}
+
+.audit-card-notes {
+    margin-top: 14px;
+    color: #d1d5db;
+    line-height: 1.6;
 }
 
 .alerts-list,

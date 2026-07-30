@@ -63,12 +63,8 @@ router.get("/", auth.requireRole("admin"), async (req, res) => {
 });
 
 // Get invoices for a resident
-router.get("/:residentId", auth.requireRole("admin", "poa"), async (req, res) => {
+router.get("/:residentId", auth.requireRole("admin", "poa"), auth.requirePoaResidentMatch("residentId"), async (req, res) => {
   try {
-    if (req.user.role === "poa" && String(req.user.residentId) !== String(req.params.residentId)) {
-      return res.status(403).json({ error: "Access denied" });
-    }
-
     const invoices = await Invoice.find({ residentId: req.params.residentId })
       .sort({ createdAt: -1 })
       .populate({ path: "residentId", select: "firstName lastName roomNumber" });

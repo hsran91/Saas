@@ -24,6 +24,7 @@
             <button onclick="showPage('medicationsPage')" class="nav-item" id="nav-meds">
                 Medications
             </button>
+            <!-- Med Pass feature removed -->
             <button onclick="showPage('marPage')" class="nav-item" id="nav-mar">
                 MAR Log
             </button>
@@ -80,6 +81,8 @@
             </div>
         </section>
 
+        <!-- Med Pass UI removed -->
+
         <section id="medicationsPage" class="page" style="display:none;">
             <h2 class="page-title">Medications</h2>
             <p class="muted">Select a resident from the Residents page to view and manage medications.</p>
@@ -102,7 +105,6 @@
         <section id="billingPage" class="page" style="display:none;">
             <h2 class="page-title">Billing <span id="billingPendingCount" class="invoice-badge"></span></h2>
             <div class="section-header-row">
-                <p class="muted">Review all invoices across residents or drill into a resident's billing details.</p>
                     <div class="section-header-row-actions">
                         <button class="secondary-btn" onclick="openPayInvoicePanel()">Pay Now</button>
                         <button class="primary-btn" onclick="loadBillingPage()">Refresh</button>
@@ -158,8 +160,8 @@
                     </select>
                 </div>
                 <div class="form-group full-width" id="registerResidentIdGroup" style="display:none;">
-                    <label for="regResidentId">Resident ID</label>
-                    <input type="text" id="regResidentId" placeholder="Resident ObjectId for POA">
+                    <label for="regResidentCode">Resident Code</label>
+                    <input type="text" id="regResidentCode" placeholder="Resident Code for POA">
                 </div>
                 <div id="adminRegisterError" class="error-text" style="display:none;"></div>
                 <div class="form-actions full-width">
@@ -178,12 +180,13 @@
                 <div class="resident-info">
                     <h2 id="residentFullName"></h2>
                     <p id="residentRoom"></p>
+                    <p id="residentCodeInfo" class="muted" style="display:none;"></p>
                 </div>
             </div>
 
             <div class="resident-tabs">
-                <button onclick="showResidentTab('medsTab')" class="active-tab">Medications</button>
-                <button onclick="showResidentTab('marTab')">MAR Log</button>
+                <button id="residentMedsTabButton" onclick="showResidentTab('medsTab')" class="active-tab">Medications</button>
+                <button id="residentMarTabButton" onclick="showResidentTab('marTab')">MAR Log</button>
                 <button id="residentBillingTabButton" onclick="showResidentTab('billingTab')">Billing</button>
             </div>
 
@@ -191,6 +194,11 @@
                 <div class="section-header-row">
                     <h3>Active Medications</h3>
                     <div class="section-header-row-actions">
+                        <div class="med-timeslot-controls" style="display:flex;gap:8px;align-items:center;margin-right:12px;">
+                            <button class="secondary-btn" onclick="(function(){ currentMedTimeslot='AM'; loadMedications(currentResidentId); })()">AM</button>
+                            <button class="secondary-btn" onclick="(function(){ currentMedTimeslot='PM'; loadMedications(currentResidentId); })()">PM</button>
+                            <button class="secondary-btn" onclick="(function(){ currentMedTimeslot='NOC'; loadMedications(currentResidentId); })()">NOC</button>
+                        </div>
                         <button class="secondary-btn" onclick="finalizeMedicationPass()" id="finalizePassButton">Finalize Medication Pass</button>
                         <button class="primary-btn" onclick="openAddMedPanel()">Add Medication</button>
                     </div>
@@ -415,6 +423,10 @@
                 <input type="text" id="newResidentRoom" required>
             </div>
             <div class="form-group full-width">
+                <label for="newResidentCode">Resident Code</label>
+                <input type="text" id="newResidentCode" placeholder="Enter resident code" required>
+            </div>
+            <div class="form-group full-width">
                 <label for="newResidentPhotoFile">Photo</label>
                 <input type="file" id="newResidentPhotoFile" accept="image/*">
             </div>
@@ -448,6 +460,8 @@
         </form>
     </div>
 </div>
+
+    <!-- Med Pass confirmation modal removed -->
 
 <div id="dashboardEditModal" class="modal-backdrop" style="display:none;">
     <div class="modal">

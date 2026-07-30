@@ -24,12 +24,8 @@ router.post('/', auth.requireRole('admin', 'medtech', 'rn'), async (req, res) =>
 });
 
 // Get medications for a resident
-router.get('/:residentId', auth.requireRole('admin', 'medtech', 'rn', 'poa'), async (req, res) => {
+router.get('/:residentId', auth.requireRole('admin', 'medtech', 'rn'), async (req, res) => {
   try {
-    if (req.user.role === 'poa' && String(req.user.residentId) !== String(req.params.residentId)) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
     const meds = await Medication.find({ residentId: req.params.residentId });
     res.json(meds);
   } catch (err) {
