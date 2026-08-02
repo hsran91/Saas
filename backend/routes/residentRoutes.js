@@ -111,14 +111,16 @@ router.post("/", auth.requireRole("admin", "medtech", "rn"), upload.single("phot
   });
 
   try {
+    const tenantId = req.tenantId;
     const payload = validateAndNormalizeResidentPayload(req.body);
 
-    const existing = await Resident.findOne({ residentCode: payload.residentCode }).lean();
+    const existing = await Resident.findOne({ tenantId, residentCode: payload.residentCode }).lean();
     if (existing) {
       return res.status(400).json({ error: "Resident code already in use." });
     }
 
     const resident = await Resident.create({
+      tenantId,
       ...payload,
       photoUrl: req.file ? `/uploads/${req.file.filename}` : null
     });
@@ -137,10 +139,11 @@ router.post("/", auth.requireRole("admin", "medtech", "rn"), upload.single("phot
 // =========================
 router.get("/", auth.requireRole("admin", "medtech", "rn", "poa"), async (req, res) => {
   try {
+    const tenantId = req.tenantId;
     if (req.user.role === "poa") {
-      const resident = await Resident.findById(req.user.residentId);
+      const resident = await Resident.findOne({ _id: req.user.residentId, tenantId });
       if (resident && !resident.residentCode) {
-        resident.residentCode = await getUniqueResidentCode(Resident);
+        resident.residentCode = await getUniqueResidentCode(Resident, tenantId);
         await resident.save();
       }
       const out = resident ? resident.toObject() : null;
@@ -148,10 +151,10 @@ router.get("/", auth.requireRole("admin", "medtech", "rn", "poa"), async (req, r
       return res.json(out ? [out] : []);
     }
 
-    const residents = await Resident.find();
+    const residents = await Resident.find({ tenantId });
     const updatedResidents = await Promise.all(residents.map(async r => {
       if (!r.residentCode) {
-        r.residentCode = await getUniqueResidentCode(Resident);
+        r.residentCode = await getUniqueResidentCode(Resident, tenantId);
         await r.save();
       }
       const obj = r.toObject();
@@ -169,12 +172,13 @@ router.get("/", auth.requireRole("admin", "medtech", "rn", "poa"), async (req, r
 // =========================
 router.get("/:id", auth.requireRole("admin", "medtech", "rn", "poa"), async (req, res) => {
   try {
+    const tenantId = req.tenantId;
     if (req.user.role === "poa" && String(req.user.residentId) !== String(req.params.id)) {
       return res.status(403).json({ error: "Access denied" });
     }
-    const resident = await Resident.findById(req.params.id);
+    const resident = await Resident.findOne({ _id: req.params.id, tenantId });
     if (resident && !resident.residentCode) {
-      resident.residentCode = await getUniqueResidentCode(Resident);
+      resident.residentCode = await getUniqueResidentCode(Resident, tenantId);
       await resident.save();
     }
     const out = resident ? resident.toObject() : null;
@@ -190,7 +194,10 @@ router.get("/:id", auth.requireRole("admin", "medtech", "rn", "poa"), async (req
 // =========================
 router.delete("/:id", auth.requireRole("admin", "medtech", "rn"), async (req, res) => {
   try {
-    await Resident.findByIdAndDelete(req.params.id);
+    const deleted = await Resident.findOneAndDelete({ _id: req.params.id, tenantId: req.tenantId });
+    if (!deleted) {
+      return res.status(404).json({ error: "Resident not found" });
+    }
     res.json({ message: "Resident deleted" });
   } catch (err) {
     res.status(500).json({ error: err.message });

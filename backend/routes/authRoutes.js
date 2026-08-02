@@ -1,6 +1,7 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const mongoose = require("mongoose");
 const rateLimit = require("express-rate-limit");
 const auth = require("../middleware/auth");
 const User = require("../models/User");
@@ -40,6 +41,7 @@ const loginLimiter = rateLimit({
 // REGISTER STAFF
 router.post("/register", auth, auth.requireRole("admin"), async (req, res) => {
   try {
+    const tenantId = req.tenantId;
     const { name, username, email, password, role, residentCode } = req.body;
 
     if (!name || !username || !email || !password || !role) {
@@ -61,17 +63,17 @@ router.post("/register", auth, auth.requireRole("admin"), async (req, res) => {
       return res.status(400).json({ error: "Username prefix does not match selected role" });
     }
 
-    const usernameExists = await User.findOne({ username });
+    const usernameExists = await User.findOne({ tenantId, username });
     if (usernameExists) return res.status(400).json({ error: "Username already in use" });
 
-    const emailExists = await User.findOne({ email });
+    const emailExists = await User.findOne({ tenantId, email });
     if (emailExists) return res.status(400).json({ error: "Email already in use" });
 
     const hashed = await bcrypt.hash(password, 10);
     let poaResidentId;
 
     if (role === "poa") {
-      const resident = await Resident.findOne({ residentCode });
+      const resident = await Resident.findOne({ tenantId, residentCode });
       if (!resident) {
         return res.status(400).json({ error: "Resident code not found" });
       }
@@ -79,6 +81,7 @@ router.post("/register", auth, auth.requireRole("admin"), async (req, res) => {
     }
 
     const user = await User.create({
+      tenantId,
       name,
       username,
       email,
@@ -96,21 +99,40 @@ router.post("/register", auth, auth.requireRole("admin"), async (req, res) => {
 // LOGIN STAFF
 router.post("/login", loginLimiter, async (req, res) => {
   try {
-    const { username, email, password } = req.body;
+    const { username, email, password, tenantId } = req.body;
     const loginKey = username || email;
 
     if (!loginKey || !password) {
       return res.status(400).json({ error: "Username and password are required" });
     }
 
+    const rawTenantId = typeof tenantId === "string"
+      ? tenantId.trim()
+      : (typeof req.headers["x-tenant-id"] === "string" ? req.headers["x-tenant-id"].trim() : "");
+    const normalizedTenantId = rawTenantId || "";
+
+    if (normalizedTenantId && !mongoose.Types.ObjectId.isValid(normalizedTenantId)) {
+      return res.status(400).json({ error: "tenantId must be a valid id" });
+    }
+
     let user = null;
     if (username) {
-      user = await User.findOne({ username });
+      user = await User.findOne({ username, ...(normalizedTenantId ? { tenantId: normalizedTenantId } : {}) });
       if (!user && username.includes("@")) {
-        user = await User.findOne({ email: username });
+        user = await User.findOne({ email: username, ...(normalizedTenantId ? { tenantId: normalizedTenantId } : {}) });
       }
     } else {
-      user = await User.findOne({ email: loginKey });
+      user = await User.findOne({ email: loginKey, ...(normalizedTenantId ? { tenantId: normalizedTenantId } : {}) });
+    }
+
+    if (!user && !normalizedTenantId) {
+      const duplicates = username
+        ? await User.countDocuments({ username })
+        : await User.countDocuments({ email: loginKey });
+      if (duplicates > 1) {
+        await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
+        return res.status(400).json({ error: "Tenant ID is required for this account" });
+      }
     }
 
     if (!user) {
@@ -122,7 +144,7 @@ router.post("/login", loginLimiter, async (req, res) => {
     if (!match) return res.status(401).json({ error: AUTH_FAILURE_MESSAGE });
 
     const token = jwt.sign(
-      { id: user._id, role: user.role, name: user.name, residentId: user.residentId },
+      { id: user._id, role: user.role, name: user.name, residentId: user.residentId, tenantId: user.tenantId },
       JWT_SECRET,
       {
         expiresIn: JWT_EXPIRES_IN,
@@ -131,7 +153,7 @@ router.post("/login", loginLimiter, async (req, res) => {
       }
     );
 
-    res.json({ message: "Login successful", token, user });
+    res.json({ message: "Login successful", token, user, tenantId: String(user.tenantId) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

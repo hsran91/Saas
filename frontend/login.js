@@ -26,6 +26,7 @@ function switchForm(showLogin) {
 function login(event) {
     event.preventDefault();
     const username = document.getElementById("username").value.trim();
+    const tenantId = document.getElementById("tenantId")?.value.trim();
     const password = document.getElementById("password").value.trim();
     const errorBox = document.getElementById("loginError");
 
@@ -40,7 +41,7 @@ function login(event) {
     fetch(`${API_BASE}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify({ username, password, tenantId: tenantId || undefined })
     })
         .then(async res => {
             const payload = await res.json().catch(() => ({}));

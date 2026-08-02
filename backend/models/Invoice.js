@@ -1,6 +1,12 @@
 const mongoose = require("mongoose");
 
 const InvoiceSchema = new mongoose.Schema({
+  tenantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Tenant",
+    required: true,
+    index: true,
+  },
   residentId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Resident",
@@ -48,5 +54,8 @@ const InvoiceSchema = new mongoose.Schema({
     type: Date,
   },
 }, { timestamps: true });
+
+InvoiceSchema.index({ tenantId: 1, residentId: 1, createdAt: -1 });
+InvoiceSchema.index({ tenantId: 1, status: 1, createdAt: -1 });
 
 module.exports = mongoose.model("Invoice", InvoiceSchema);

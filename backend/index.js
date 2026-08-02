@@ -9,6 +9,12 @@ require("dotenv").config();
 
 const User = require("./models/User");
 const Resident = require("./models/Resident");
+const Tenant = require("./models/Tenant");
+const Medication = require("./models/Medication");
+const MarEntry = require("./models/MarsEntry");
+const Invoice = require("./models/Invoice");
+const DashboardSettings = require("./models/DashboardSettings");
+const AlertChart = require("./models/AlertChart");
 
 const residentRoutes = require("./routes/residentRoutes");
 const authRoutes = require("./routes/authRoutes");
@@ -41,6 +47,9 @@ const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 15 * 60 
 const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX || 300);
 const AUTH_RATE_LIMIT_WINDOW_MS = Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000);
 const AUTH_RATE_LIMIT_MAX = Number(process.env.AUTH_RATE_LIMIT_MAX || 100);
+const DEFAULT_TENANT_SLUG = (process.env.DEFAULT_TENANT_SLUG || "default").trim().toLowerCase();
+const DEFAULT_TENANT_NAME = (process.env.DEFAULT_TENANT_NAME || "Default Organization").trim();
+const MIGRATE_TENANTS_ON_BOOT = process.env.MIGRATE_TENANTS_ON_BOOT !== "false";
 const TRUST_PROXY = process.env.TRUST_PROXY === "true";
 const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || "")
   .split(",")
@@ -122,17 +131,53 @@ app.use("/alerts", alertRoutes);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-async function seedDevelopmentUsers() {
+async function getOrCreateDefaultTenant() {
+  let tenant = await Tenant.findOne({ slug: DEFAULT_TENANT_SLUG });
+  if (!tenant) {
+    tenant = await Tenant.create({
+      slug: DEFAULT_TENANT_SLUG,
+      name: DEFAULT_TENANT_NAME
+    });
+    console.log(`Created default tenant: ${tenant.slug}`);
+  }
+  return tenant;
+}
+
+async function backfillTenantIds(defaultTenantId) {
+  const models = [
+    User,
+    Resident,
+    Medication,
+    MarEntry,
+    Invoice,
+    DashboardSettings,
+    AlertChart
+  ];
+
+  for (const Model of models) {
+    const result = await Model.updateMany(
+      { tenantId: { $exists: false } },
+      { $set: { tenantId: defaultTenantId } }
+    );
+
+    if ((result.modifiedCount || 0) > 0) {
+      console.log(`Backfilled ${result.modifiedCount} ${Model.modelName} record(s) with tenantId.`);
+    }
+  }
+}
+
+async function seedDevelopmentUsers(defaultTenantId) {
   console.warn("SEED_ON_BOOT is enabled. Running development seed logic.");
 
   const adminEmail = "hsran91@gmail.com";
   const adminPassword = "hman123";
   const adminUsername = "admhasen";
-  const existingAdmin = await User.findOne({ email: adminEmail });
+  const existingAdmin = await User.findOne({ tenantId: defaultTenantId, email: adminEmail });
 
   if (!existingAdmin) {
     const hashed = await bcrypt.hash(adminPassword, 10);
     await User.create({
+      tenantId: defaultTenantId,
       name: "hasen",
       username: adminUsername,
       email: adminEmail,
@@ -160,11 +205,12 @@ async function seedDevelopmentUsers() {
   const medtechEmail = "medtech@example.com";
   const medtechUsername = "medtech1";
   const medtechPassword = "med123";
-  const existingMedtech = await User.findOne({ email: medtechEmail });
+  const existingMedtech = await User.findOne({ tenantId: defaultTenantId, email: medtechEmail });
 
   if (!existingMedtech) {
     const hashed = await bcrypt.hash(medtechPassword, 10);
     await User.create({
+      tenantId: defaultTenantId,
       name: "Med Tech",
       username: medtechUsername,
       email: medtechEmail,
@@ -179,13 +225,14 @@ async function seedDevelopmentUsers() {
   const poaPassword = "poa123";
   const residentName = "Test Resident";
   const residentRoom = "101";
-  const existingPoa = await User.findOne({ email: poaEmail });
+  const existingPoa = await User.findOne({ tenantId: defaultTenantId, email: poaEmail });
 
   let poaResidentId;
   if (!existingPoa) {
-    let resident = await Resident.findOne({ firstName: residentName, roomNumber: residentRoom });
+    let resident = await Resident.findOne({ tenantId: defaultTenantId, firstName: residentName, roomNumber: residentRoom });
     if (!resident) {
       resident = await Resident.create({
+        tenantId: defaultTenantId,
         firstName: residentName,
         lastName: "Billing",
         roomNumber: residentRoom
@@ -194,6 +241,7 @@ async function seedDevelopmentUsers() {
     poaResidentId = resident._id;
     const hashed = await bcrypt.hash(poaPassword, 10);
     await User.create({
+      tenantId: defaultTenantId,
       name: "POA User",
       username: poaUsername,
       email: poaEmail,
@@ -211,9 +259,10 @@ async function seedDevelopmentUsers() {
       console.log("Updated existing POA password to poa123");
     }
     if (!existingPoa.residentId) {
-      let resident = await Resident.findOne({ firstName: residentName, roomNumber: residentRoom });
+      let resident = await Resident.findOne({ tenantId: defaultTenantId, firstName: residentName, roomNumber: residentRoom });
       if (!resident) {
         resident = await Resident.create({
+          tenantId: defaultTenantId,
           firstName: residentName,
           lastName: "Billing",
           roomNumber: residentRoom
@@ -236,8 +285,14 @@ mongoose
   .then(async () => {
     console.log("MongoDB connected");
 
+    const defaultTenant = await getOrCreateDefaultTenant();
+
+    if (MIGRATE_TENANTS_ON_BOOT) {
+      await backfillTenantIds(defaultTenant._id);
+    }
+
     if (IS_DEV && SHOULD_SEED_ON_BOOT) {
-      await seedDevelopmentUsers();
+      await seedDevelopmentUsers(defaultTenant._id);
     } else {
       console.log("Startup seed skipped. Set NODE_ENV=development and SEED_ON_BOOT=true to enable.");
     }

@@ -91,12 +91,23 @@ function parseJwt(token) {
 
 function setUserFromToken(token) {
     currentUser = parseJwt(token);
+    if (!currentUser || !currentUser.tenantId) {
+        clearAuth();
+        return;
+    }
     updateRoleUI();
 }
 
 function getAuthHeaders() {
     const token = getToken();
-    return token ? { Authorization: `Bearer ${token}` } : {};
+    if (!token) return {};
+
+    const user = currentUser || parseJwt(token);
+    const tenantId = user?.tenantId;
+    return {
+        Authorization: `Bearer ${token}`,
+        ...(tenantId ? { "X-Tenant-Id": tenantId } : {})
+    };
 }
 
 function authFetch(url, options = {}) {

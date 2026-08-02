@@ -102,6 +102,7 @@ function validateAndNormalizeInvoiceCreatePayload(body) {
 // Create a new invoice
 router.post("/", auth.requireRole("admin", "poa"), async (req, res) => {
   try {
+    const tenantId = req.tenantId;
     const payload = validateAndNormalizeInvoiceCreatePayload(req.body);
     const {
       residentId,
@@ -115,7 +116,7 @@ router.post("/", auth.requireRole("admin", "poa"), async (req, res) => {
       isPaidOnCreate
     } = payload;
 
-    const resident = await Resident.findById(residentId).select("_id").lean();
+    const resident = await Resident.findOne({ _id: residentId, tenantId }).select("_id").lean();
     if (!resident) {
       return res.status(404).json({ error: "Resident not found" });
     }
@@ -125,6 +126,7 @@ router.post("/", auth.requireRole("admin", "poa"), async (req, res) => {
     }
 
     const invoice = new Invoice({
+      tenantId,
       residentId,
       description,
       amount,
@@ -149,7 +151,7 @@ router.post("/", auth.requireRole("admin", "poa"), async (req, res) => {
 // Get all invoices
 router.get("/", auth.requireRole("admin"), async (req, res) => {
   try {
-    const invoices = await Invoice.find().sort({ createdAt: -1 }).populate({
+    const invoices = await Invoice.find({ tenantId: req.tenantId }).sort({ createdAt: -1 }).populate({
       path: "residentId",
       select: "firstName lastName roomNumber",
     });
@@ -162,7 +164,7 @@ router.get("/", auth.requireRole("admin"), async (req, res) => {
 // Get invoices for a resident
 router.get("/:residentId", auth.requireRole("admin", "poa"), auth.requirePoaResidentMatch("residentId"), async (req, res) => {
   try {
-    const invoices = await Invoice.find({ residentId: req.params.residentId })
+    const invoices = await Invoice.find({ tenantId: req.tenantId, residentId: req.params.residentId })
       .sort({ createdAt: -1 })
       .populate({ path: "residentId", select: "firstName lastName roomNumber" });
     res.json(invoices);
@@ -182,7 +184,7 @@ router.patch("/:invoiceId/pay", auth.requireRole("admin", "poa"), async (req, re
       return res.status(400).json({ error: "invoiceId must be a valid id" });
     }
 
-    const invoice = await Invoice.findById(req.params.invoiceId);
+    const invoice = await Invoice.findOne({ _id: req.params.invoiceId, tenantId: req.tenantId });
     if (!invoice) {
       return res.status(404).json({ error: "Invoice not found" });
     }

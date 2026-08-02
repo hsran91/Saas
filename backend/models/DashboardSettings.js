@@ -1,6 +1,13 @@
 const mongoose = require("mongoose");
 
 const DashboardSettingsSchema = new mongoose.Schema({
+  tenantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Tenant",
+    required: true,
+    unique: true,
+    index: true
+  },
   quickStats: { type: String, default: "Monitor residents, medications, and MAR activity at a glance." },
   todaysFocus: { type: String, default: "Use the Residents and MAR sections to manage today’s passes." },
 }, { timestamps: true });

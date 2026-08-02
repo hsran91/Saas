@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "migrate:tenant": "node scripts/backfillTenantIds.js",
     "seed:meds": "node scripts/seedMedpass.js",
+    "test:tenant-smoke": "powershell -ExecutionPolicy Bypass -File scripts/tenantSmokeTest.ps1",
     "test": "node --test tests/**/*.test.js"
   },
   "keywords": [],

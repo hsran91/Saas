@@ -2,6 +2,12 @@
 const mongoose = require("mongoose");
 
 const MarEntrySchema = new mongoose.Schema({
+  tenantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Tenant",
+    required: true,
+    index: true
+  },
   residentId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Resident",
@@ -56,5 +62,9 @@ const MarEntrySchema = new mongoose.Schema({
   }
 
 }, { timestamps: true });
+
+MarEntrySchema.index({ tenantId: 1, residentId: 1, actualTime: -1 });
+MarEntrySchema.index({ tenantId: 1, medicationId: 1, actualTime: -1 });
+MarEntrySchema.index({ tenantId: 1, residentId: 1, medicationId: 1, scheduledTime: 1, actualTime: -1 });
 
 module.exports = mongoose.model("MarEntry", MarEntrySchema);

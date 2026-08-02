@@ -87,11 +87,12 @@ function validateAndNormalizeMarPayload(body) {
 
 router.get("/:residentId", auth.requireRole("admin", "medtech", "rn", "poa"), async (req, res) => {
   try {
+    const tenantId = req.tenantId;
     if (req.user.role === "poa" && String(req.user.residentId) !== String(req.params.residentId)) {
       return res.status(403).json({ error: "Access denied" });
     }
 
-    const entries = await MarEntry.find({ residentId: req.params.residentId })
+    const entries = await MarEntry.find({ tenantId, residentId: req.params.residentId })
       .sort({ actualTime: -1 })
       .populate("medicationId", "name");
 
@@ -106,7 +107,7 @@ router.get("/", auth.requireRole("admin", "medtech", "rn"), async (req, res) => 
   try {
     const limit = Math.min(500, Number(req.query.limit) || 200);
 
-    const entries = await MarEntry.find()
+    const entries = await MarEntry.find({ tenantId: req.tenantId })
       .sort({ actualTime: -1 })
       .limit(limit)
       .populate("medicationId", "name")
@@ -120,6 +121,7 @@ router.get("/", auth.requireRole("admin", "medtech", "rn"), async (req, res) => 
 
 router.post("/", auth.requireRole("admin", "medtech", "rn"), async (req, res) => {
   try {
+    const tenantId = req.tenantId;
     const payload = validateAndNormalizeMarPayload(req.body);
     const {
       residentId,
@@ -130,7 +132,7 @@ router.post("/", auth.requireRole("admin", "medtech", "rn"), async (req, res) =>
       reason
     } = payload;
 
-    const medication = await Medication.findById(medicationId).lean();
+    const medication = await Medication.findOne({ _id: medicationId, tenantId }).lean();
     if (!medication) {
       return res.status(404).json({ error: "Medication not found" });
     }
@@ -147,6 +149,7 @@ router.post("/", auth.requireRole("admin", "medtech", "rn"), async (req, res) =>
       dayEnd.setHours(23, 59, 59, 999);
 
       const existing = await MarEntry.findOne({
+        tenantId,
         residentId,
         medicationId,
         scheduledTime,
@@ -162,7 +165,7 @@ router.post("/", auth.requireRole("admin", "medtech", "rn"), async (req, res) =>
     let resolvedStaffName = req.user.name || "Staff";
     let resolvedStaffId = req.user.id;
     if (req.user.id) {
-      const dbUser = await User.findById(req.user.id).select("name").lean();
+      const dbUser = await User.findOne({ _id: req.user.id, tenantId }).select("name").lean();
       if (dbUser?.name) {
         resolvedStaffName = dbUser.name;
       }
@@ -170,6 +173,7 @@ router.post("/", auth.requireRole("admin", "medtech", "rn"), async (req, res) =>
     }
 
     const entry = new MarEntry({
+      tenantId,
       residentId,
       medicationId,
       scheduledTime,

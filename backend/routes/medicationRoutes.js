@@ -164,10 +164,11 @@ function validateAndNormalizeMedicationPayload(body, options = {}) {
 // Create a medication (expects residentId in body)
 router.post('/', auth.requireRole('admin', 'medtech', 'rn'), async (req, res) => {
   try {
+    const tenantId = req.tenantId;
     const payload = validateAndNormalizeMedicationPayload(req.body);
     const { residentId } = payload;
 
-    const resident = await Resident.findById(residentId).lean();
+    const resident = await Resident.findOne({ _id: residentId, tenantId }).lean();
     if (!resident) {
       return res.status(404).json({ error: 'Resident not found' });
     }
@@ -180,7 +181,10 @@ router.post('/', auth.requireRole('admin', 'medtech', 'rn'), async (req, res) =>
       return res.status(400).json({ error: 'endDate must be later than or equal to startDate' });
     }
 
-    const med = new Medication(payload);
+    const med = new Medication({
+      tenantId,
+      ...payload
+    });
     await med.save();
     res.json(med);
   } catch (err) {
@@ -191,7 +195,7 @@ router.post('/', auth.requireRole('admin', 'medtech', 'rn'), async (req, res) =>
 // Get medications for a resident
 router.get('/:residentId', auth.requireRole('admin', 'medtech', 'rn'), async (req, res) => {
   try {
-    const meds = await Medication.find({ residentId: req.params.residentId }).sort({ createdAt: -1 });
+    const meds = await Medication.find({ tenantId: req.tenantId, residentId: req.params.residentId }).sort({ createdAt: -1 });
     res.json(meds);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -201,7 +205,7 @@ router.get('/:residentId', auth.requireRole('admin', 'medtech', 'rn'), async (re
 // Update a medication
 router.put('/:id', auth.requireRole('admin', 'medtech', 'rn'), async (req, res) => {
   try {
-    const med = await Medication.findById(req.params.id);
+    const med = await Medication.findOne({ _id: req.params.id, tenantId: req.tenantId });
     if (!med) {
       return res.status(404).json({ error: 'Medication not found' });
     }
@@ -235,7 +239,7 @@ router.put('/:id', auth.requireRole('admin', 'medtech', 'rn'), async (req, res) 
 // Delete a medication
 router.delete('/:id', auth.requireRole('admin', 'medtech', 'rn'), async (req, res) => {
   try {
-    const deleted = await Medication.findByIdAndDelete(req.params.id);
+    const deleted = await Medication.findOneAndDelete({ _id: req.params.id, tenantId: req.tenantId });
     if (!deleted) {
       return res.status(404).json({ error: 'Medication not found' });
     }

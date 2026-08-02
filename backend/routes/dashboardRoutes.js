@@ -4,17 +4,17 @@ const DashboardSettings = require("../models/DashboardSettings");
 
 const router = express.Router();
 
-const getSettings = async () => {
-  let settings = await DashboardSettings.findOne();
+const getSettings = async (tenantId) => {
+  let settings = await DashboardSettings.findOne({ tenantId });
   if (!settings) {
-    settings = await DashboardSettings.create({});
+    settings = await DashboardSettings.create({ tenantId });
   }
   return settings;
 };
 
 router.get("/", auth.requireRole("admin", "medtech", "rn", "poa"), async (req, res) => {
   try {
-    const settings = await getSettings();
+    const settings = await getSettings(req.tenantId);
     res.json(settings);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -24,7 +24,7 @@ router.get("/", auth.requireRole("admin", "medtech", "rn", "poa"), async (req, r
 router.patch("/", auth.requireRole("admin"), async (req, res) => {
   try {
     const { quickStats, todaysFocus } = req.body;
-    const settings = await getSettings();
+    const settings = await getSettings(req.tenantId);
 
     if (typeof quickStats === "string") settings.quickStats = quickStats;
     if (typeof todaysFocus === "string") settings.todaysFocus = todaysFocus;
