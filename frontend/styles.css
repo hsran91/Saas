@@ -191,6 +191,197 @@ body {
     margin-bottom: 12px;
 }
 
+.section-header-row-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.medpass-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.medpass-shift-banner {
+    border: 1px solid #1f2937;
+    border-radius: 10px;
+    background: #030a18;
+    padding: 10px 12px;
+}
+
+.medpass-shift-title {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.medpass-shell.shift-am .medpass-shift-banner {
+    border-color: #22c55e;
+    background: linear-gradient(90deg, rgba(34, 197, 94, 0.12), rgba(2, 6, 23, 0.96));
+}
+
+.medpass-shell.shift-pm .medpass-shift-banner {
+    border-color: #f59e0b;
+    background: linear-gradient(90deg, rgba(245, 158, 11, 0.14), rgba(2, 6, 23, 0.96));
+}
+
+.medpass-shell.shift-noc .medpass-shift-banner {
+    border-color: #3b82f6;
+    background: linear-gradient(90deg, rgba(59, 130, 246, 0.14), rgba(2, 6, 23, 0.96));
+}
+
+.medpass-header {
+    align-items: flex-end;
+    gap: 12px;
+}
+
+.medpass-filters {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+
+.medpass-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border: 1px solid #1f2937;
+    border-radius: 999px;
+    background: #030a18;
+    color: #cbd5e1;
+    cursor: pointer;
+    user-select: none;
+}
+
+.medpass-toggle input[type="checkbox"] {
+    accent-color: #0ea5e9;
+}
+
+.medpass-shift-controls {
+    display: flex;
+    gap: 8px;
+}
+
+.medpass-shift-controls .secondary-btn.active-shift {
+    background: #111827;
+    border-color: #0ea5e9;
+    color: #e5e7eb;
+}
+
+.medpass-census {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px;
+}
+
+.medpass-census-card {
+    border: 1px solid #1f2937;
+    border-radius: 10px;
+    background: #030a18;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.medpass-census-label {
+    color: #9ca3af;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.medpass-census-card strong {
+    color: #e5e7eb;
+    font-size: 22px;
+    line-height: 1;
+}
+
+.medpass-census-card.due {
+    border-color: #f59e0b;
+}
+
+.medpass-census-card.due strong {
+    color: #fbbf24;
+}
+
+.medpass-census-card.completed {
+    border-color: #22c55e;
+}
+
+.medpass-census-card.completed strong {
+    color: #4ade80;
+}
+
+.medpass-census-card.held {
+    border-color: #fb923c;
+}
+
+.medpass-census-card.held strong {
+    color: #fdba74;
+}
+
+.medpass-census-card.refused {
+    border-color: #ef4444;
+}
+
+.medpass-census-card.refused strong {
+    color: #f87171;
+}
+
+.medpass-census-card.prn {
+    border-color: #38bdf8;
+}
+
+.medpass-census-card.prn strong {
+    color: #7dd3fc;
+}
+
+.medpass-resident-grid {
+    margin-top: 0;
+    grid-template-columns: repeat(10, minmax(170px, 1fr));
+    grid-auto-rows: minmax(120px, auto);
+    gap: 12px;
+    align-items: stretch;
+}
+
+.medpass-resident-card {
+    position: relative;
+}
+
+.medpass-resident-card.selected {
+    border-color: #0ea5e9;
+    box-shadow: 0 10px 30px rgba(14, 165, 233, 0.22);
+    transform: translateY(-2px);
+}
+
+.medpass-card-status {
+    font-size: 12px;
+    color: #cbd5e1;
+}
+
+@media (max-width: 1800px) {
+    .medpass-resident-grid {
+        grid-template-columns: repeat(6, minmax(170px, 1fr));
+    }
+}
+
+@media (max-width: 1200px) {
+    .medpass-resident-grid {
+        grid-template-columns: repeat(4, minmax(160px, 1fr));
+    }
+}
+
+@media (max-width: 800px) {
+    .medpass-resident-grid {
+        grid-template-columns: repeat(2, minmax(150px, 1fr));
+    }
+}
+
 /* GRID & CARDS */
 
 .grid {
@@ -659,9 +850,25 @@ body {
     gap: 12px;
 }
 
-.med-card.given {
+.med-card.given,
+.med-card.status-given {
     background: rgba(14, 165, 233, 0.12);
     border-color: #0ea5e9;
+}
+
+.med-card.status-held {
+    background: rgba(245, 158, 11, 0.1);
+    border-color: #f59e0b;
+}
+
+.med-card.status-refused {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: #ef4444;
+}
+
+.med-card.status-prn {
+    background: rgba(34, 197, 94, 0.1);
+    border-color: #22c55e;
 }
 
 .med-card-checkbox {
@@ -712,6 +919,27 @@ body {
 
 .med-left small {
     color: #9ca3af;
+}
+
+.med-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-end;
+    min-width: 136px;
+}
+
+.med-status-select {
+    width: 136px;
+    background: #020617;
+    border: 1px solid #1f2937;
+    color: #e5e7eb;
+    border-radius: 8px;
+    padding: 6px 8px;
+}
+
+.med-action-btn {
+    width: 136px;
 }
 
 /* MAR LOG */

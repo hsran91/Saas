@@ -14,22 +14,28 @@ let residents = [];
 let currentResidentId = null;
 let currentUser = null;
 const medicationDraftStatus = new Map();
+const medicationCache = new Map();
 let passFinalized = false;
 let currentMedTimeslot = null;
+let editingMedicationId = null;
+let prnFollowupMedicationId = null;
+let medPassResidentId = null;
+let medPassShift = null;
+let pendingFinalizeContext = null;
+let medPassDueResidentIds = new Set();
+let medPassDueOnly = false;
+
+const SHIFT_WINDOWS = {
+    AM: { start: 6 * 60, end: 14 * 60, label: "06:00 - 14:00" },
+    PM: { start: 14 * 60, end: 22 * 60, label: "14:00 - 22:00" },
+    NOC: { start: 22 * 60, end: 6 * 60, label: "22:00 - 06:00" }
+};
 
 function getCurrentTimeslot(now = new Date()) {
     const minutes = now.getHours() * 60 + now.getMinutes();
-    const AM_START = 6 * 60; // 06:00
-    const AM_END = 14 * 60; // 14:00
-    const PM_START = 14 * 60; // 14:00
-    const PM_END = 22 * 60 + 30; // 22:30
-    const NOC_START = 22 * 60; // 22:00
-    const NOC_END = 6 * 60; // 06:00 next day
-
-    // Priority to NOC for the overlap window (22:00-22:30)
-    if (minutes >= NOC_START || minutes < NOC_END) return "NOC";
-    if (minutes >= PM_START && minutes < PM_END) return "PM";
-    if (minutes >= AM_START && minutes < AM_END) return "AM";
+    if (minutes >= SHIFT_WINDOWS.NOC.start || minutes < SHIFT_WINDOWS.NOC.end) return "NOC";
+    if (minutes >= SHIFT_WINDOWS.PM.start && minutes < SHIFT_WINDOWS.PM.end) return "PM";
+    if (minutes >= SHIFT_WINDOWS.AM.start && minutes < SHIFT_WINDOWS.AM.end) return "AM";
     return "AM";
 }
 
@@ -40,7 +46,10 @@ function getCurrentTimeslot(now = new Date()) {
         'openDashboardEditModal','closeDashboardEditModal','logout','openAddMedPanel',
         'closeAddMedPanel','addMedTimeRow','removeMedTimeRow','finalizeMedicationPass',
         'openPayInvoicePanel','closePayInvoicePanel','openAddInvoicePanel','closeAddInvoicePanel',
-        'openAddAlertPanel','closeAddAlertPanel','openResidentProfile','deleteResident','payInvoice'
+        'openAddAlertPanel','closeAddAlertPanel','openResidentProfile','deleteResident','payInvoice',
+        'deleteMedication','startMedicationEdit','openPrnFollowupModal','closePrnFollowupModal',
+        'loadMedPassPage','setMedPassShift','onMedPassResidentChange','finalizeMedPassShift','toggleMedPassDueOnly',
+        'openMedPassResidentPage'
     ];
 
     names.forEach(name => {
@@ -128,7 +137,7 @@ function updateRoleUI() {
     const dashboardNav = document.getElementById("nav-dashboard");
     const billNav = document.getElementById("nav-billing");
     const medNav = document.getElementById("nav-meds");
-    // medpass UI removed
+    const medPassNav = document.getElementById("nav-medpass");
     const billingPageDescription = document.getElementById("billingPageDescription");
     const registerNav = document.getElementById("nav-register");
     const addResidentBtn = document.getElementById("addResidentButton");
@@ -142,6 +151,7 @@ function updateRoleUI() {
         if (badge) badge.textContent = "";
         if (logoutButton) logoutButton.style.display = "none";
         if (billNav) billNav.style.display = "none";
+        if (medPassNav) medPassNav.style.display = "none";
         if (registerNav) registerNav.style.display = "none";
         if (addResidentBtn) addResidentBtn.style.display = "none";
         if (residentBillingTabButton) residentBillingTabButton.style.display = "none";
@@ -157,6 +167,7 @@ function updateRoleUI() {
 
     if (currentUser.role === "admin") {
         if (billNav) billNav.style.display = "block";
+        if (medPassNav) medPassNav.style.display = "block";
         if (registerNav) registerNav.style.display = "inline-block";
         if (addResidentBtn) addResidentBtn.style.display = "inline-block";
         if (residentBillingTabButton) residentBillingTabButton.style.display = "inline-block";
@@ -164,12 +175,13 @@ function updateRoleUI() {
         if (residentNewInvoiceButton) residentNewInvoiceButton.style.display = "inline-block";
         if (editQuickStatsButton) editQuickStatsButton.style.display = "inline-block";
         if (editTodaysFocusButton) editTodaysFocusButton.style.display = "inline-block";
-        // medpass nav removed
+        if (medPassNav) medPassNav.style.display = "block";
     } else if (currentUser.role === "poa") {
         if (dashboardNav) dashboardNav.style.display = "none";
         if (registerNav) registerNav.style.display = "none";
         if (billNav) billNav.style.display = "block";
         if (medNav) medNav.style.display = "none";
+        if (medPassNav) medPassNav.style.display = "none";
         if (addResidentBtn) addResidentBtn.style.display = "none";
         if (residentBillingTabButton) residentBillingTabButton.style.display = "inline-block";
         if (residentPayInvoiceButton) residentPayInvoiceButton.style.display = "inline-block";
@@ -181,7 +193,6 @@ function updateRoleUI() {
         const marNav = document.getElementById("nav-mar");
         if (alertsNav) alertsNav.style.display = "none";
         if (marNav) marNav.style.display = "none";
-        // medpass audit nav removed
         const medsTabButton = document.getElementById("residentMedsTabButton");
         const marTabButton = document.getElementById("residentMarTabButton");
         if (medsTabButton) medsTabButton.style.display = "none";
@@ -195,13 +206,13 @@ function updateRoleUI() {
     } else {
         if (registerNav) registerNav.style.display = "none";
         if (billNav) billNav.style.display = "none";
+        if (medPassNav) medPassNav.style.display = ["medtech", "rn"].includes(currentUser.role) ? "block" : "none";
         if (addResidentBtn) addResidentBtn.style.display = currentUser.role === "medtech" || currentUser.role === "rn" ? "inline-block" : "none";
         if (residentBillingTabButton) residentBillingTabButton.style.display = currentUser.role === "poa" ? "inline-block" : "none";
         if (residentPayInvoiceButton) residentPayInvoiceButton.style.display = currentUser.role === "poa" ? "inline-block" : "none";
         if (residentNewInvoiceButton) residentNewInvoiceButton.style.display = "none";
         if (editQuickStatsButton) editQuickStatsButton.style.display = "none";
         if (editTodaysFocusButton) editTodaysFocusButton.style.display = "none";
-        // medpass nav removed
     }
 }
 
@@ -296,10 +307,10 @@ window.addEventListener("DOMContentLoaded", () => {
     initApp();
 });
 
-function setPassFinalized(value) {
+function setPassFinalized(value, listId = "med-list", finalizeButtonId = "finalizePassButton") {
     passFinalized = value;
-    const medList = document.getElementById("med-list");
-    const finalizeBtn = document.getElementById("finalizePassButton");
+    const medList = document.getElementById(listId);
+    const finalizeBtn = document.getElementById(finalizeButtonId);
 
     if (medList) {
         medList.classList.toggle("pass-finalized", value);
@@ -386,6 +397,355 @@ async function loadResidentCards() {
         console.error("Error loading residents:", err);
     }
 }
+
+async function ensureResidentsLoaded(force = false) {
+    if (!force && Array.isArray(residents) && residents.length) {
+        return residents;
+    }
+    const data = await authFetch(`${API_BASE}/residents`);
+    residents = Array.isArray(data) ? data : [];
+    return residents;
+}
+
+function renderMedPassShiftButtons() {
+    ["AM", "PM", "NOC"].forEach(shift => {
+        const btn = document.getElementById(`medpassShift${shift}`);
+        if (!btn) return;
+        btn.classList.toggle("active-shift", medPassShift === shift);
+    });
+}
+
+function getShiftWindowLabel(shift) {
+    return SHIFT_WINDOWS[shift]?.label || "";
+}
+
+function applyMedPassShiftTheme(shift) {
+    const shell = document.querySelector("#medPassPage .medpass-shell");
+    if (!shell) return;
+    shell.classList.remove("shift-am", "shift-pm", "shift-noc");
+    if (shift === "AM") shell.classList.add("shift-am");
+    if (shift === "PM") shell.classList.add("shift-pm");
+    if (shift === "NOC") shell.classList.add("shift-noc");
+}
+
+function updateMedPassShiftBanner(shift, dueResidentsCount) {
+    const title = document.getElementById("medPassShiftTitle");
+    const dueResidents = document.getElementById("medPassShiftDueResidents");
+    const windowLabel = getShiftWindowLabel(shift);
+    if (title) title.textContent = `Current Shift: ${shift} (${windowLabel})`;
+    if (dueResidents) dueResidents.textContent = `Residents with meds due: ${dueResidentsCount}`;
+}
+
+async function calculateDueResidentsForShift(shift) {
+    if (!shift) return [];
+
+    const checks = await Promise.all(
+        residents.map(async (resident) => {
+            try {
+                const meds = await authFetch(`${API_BASE}/medications/${resident._id}`);
+                const isDue = Array.isArray(meds) && meds.some((m) => medIsScheduledForSlot(m, shift));
+                return isDue ? resident : null;
+            } catch (err) {
+                console.error("Error loading resident meds for shift context:", resident._id, err);
+                return null;
+            }
+        })
+    );
+
+    return checks.filter(Boolean);
+}
+
+function updateMedPassSummary(text) {
+    const summary = document.getElementById("medPassSummary");
+    if (summary) summary.textContent = text;
+}
+
+function updateMedPassCensusUI(census) {
+    const dueEl = document.getElementById("medPassCensusDue");
+    const completedEl = document.getElementById("medPassCensusCompleted");
+    const heldEl = document.getElementById("medPassCensusHeld");
+    const refusedEl = document.getElementById("medPassCensusRefused");
+    const prnEl = document.getElementById("medPassCensusPrn");
+
+    if (dueEl) dueEl.textContent = String(census.due || 0);
+    if (completedEl) completedEl.textContent = String(census.completed || 0);
+    if (heldEl) heldEl.textContent = String(census.held || 0);
+    if (refusedEl) refusedEl.textContent = String(census.refused || 0);
+    if (prnEl) prnEl.textContent = String(census.prn || 0);
+}
+
+function resetMedPassCensus() {
+    updateMedPassCensusUI({ due: 0, completed: 0, held: 0, refused: 0, prn: 0 });
+}
+
+function marScheduledTimeMatchesShift(scheduledTime, shift) {
+    if (!scheduledTime || !shift) return false;
+
+    const raw = String(scheduledTime).trim();
+    const upper = raw.toUpperCase();
+    if (upper === shift) return true;
+    if (upper.includes(` ${shift}`) || upper.endsWith(shift)) return true;
+
+    const minutes = parseTimeToMinutes(raw);
+    if (minutes == null) return false;
+    return isTimeInSlot(minutes, shift);
+}
+
+async function loadMedPassCensus(residentId, shift, dueCount = 0) {
+    if (!residentId || !shift) {
+        resetMedPassCensus();
+        return;
+    }
+
+    try {
+        const entries = await authFetch(`${API_BASE}/mar/${residentId}`);
+        const now = new Date();
+        const dayStart = new Date(now);
+        dayStart.setHours(0, 0, 0, 0);
+
+        const todaysShiftEntries = (Array.isArray(entries) ? entries : []).filter(entry => {
+            const actual = new Date(entry.actualTime || entry.createdAt || 0);
+            if (Number.isNaN(actual.getTime())) return false;
+            if (actual < dayStart) return false;
+            if (entry.status === "prn-followup") return false;
+            return marScheduledTimeMatchesShift(entry.scheduledTime, shift);
+        });
+
+        const uniqueMedIds = new Set();
+        let held = 0;
+        let refused = 0;
+        let prn = 0;
+        let completed = 0;
+
+        todaysShiftEntries.forEach(entry => {
+            const medId = entry.medicationId?._id || entry.medicationId;
+            if (medId) uniqueMedIds.add(String(medId));
+            if (entry.status === "given") completed += 1;
+            if (entry.status === "held") held += 1;
+            if (entry.status === "refused") refused += 1;
+            if (entry.status === "prn") prn += 1;
+        });
+
+        const chartedCount = uniqueMedIds.size;
+        const dueRemaining = Math.max(0, Number(dueCount || 0) - chartedCount);
+
+        updateMedPassCensusUI({
+            due: dueRemaining,
+            completed,
+            held,
+            refused,
+            prn
+        });
+    } catch (err) {
+        console.error("Error loading Med Pass census:", err);
+        resetMedPassCensus();
+    }
+}
+
+function populateMedPassResidentSelect() {
+    const select = document.getElementById("medPassResidentSelect");
+    if (!select) return;
+
+    const dueOnlyToggle = document.getElementById("medPassDueOnlyToggle");
+    if (dueOnlyToggle) dueOnlyToggle.checked = medPassDueOnly;
+
+    const residentsForSelect = medPassDueOnly
+        ? residents.filter(r => medPassDueResidentIds.has(String(r._id)))
+        : residents;
+
+    select.innerHTML = `<option value="">Select a resident</option>`;
+    residentsForSelect.forEach(resident => {
+        const label = `${resident.firstName} ${resident.lastName} (${resident.roomNumber || "-"})`;
+        const dueTag = medPassDueResidentIds.has(String(resident._id)) ? " [DUE]" : "";
+        select.innerHTML += `<option value="${resident._id}">${escapeHtml(label + dueTag)}</option>`;
+    });
+
+    const residentExists = residentsForSelect.some(r => String(r._id) === String(medPassResidentId));
+    if (!residentExists) {
+        medPassResidentId = null;
+    }
+
+    if (!medPassResidentId && residentsForSelect.length) {
+        medPassResidentId = residentsForSelect[0]._id;
+    }
+
+    select.value = medPassResidentId || "";
+
+    if (!residentsForSelect.length) {
+        select.innerHTML = `<option value="">No residents due this shift</option>`;
+        select.value = "";
+    }
+
+    renderMedPassResidentCards(residentsForSelect);
+}
+
+function renderMedPassResidentCards(residentsForCards) {
+    const container = document.getElementById("medPassResidentCards");
+    if (!container) return;
+
+    container.innerHTML = "";
+
+    if (!Array.isArray(residentsForCards) || !residentsForCards.length) {
+        const empty = document.createElement("p");
+        empty.className = "muted";
+        empty.textContent = medPassDueOnly ? "No residents due in this shift." : "No residents available.";
+        container.appendChild(empty);
+        return;
+    }
+
+    residentsForCards.forEach((resident) => {
+        const card = document.createElement("div");
+        card.classList.add("resident-card", "medpass-resident-card");
+
+        const isDue = medPassDueResidentIds.has(String(resident._id));
+        if (isDue) card.classList.add("due");
+        else card.classList.add("no-due");
+
+        if (String(medPassResidentId) === String(resident._id)) {
+            card.classList.add("selected");
+        }
+
+        const thumbSrc = resident.photoUrl ? `${API_BASE}${resident.photoUrl}` : "images/placeholder.svg";
+        const dueLabel = isDue ? "Due this shift" : "No meds due this shift";
+
+        card.innerHTML = `
+            <div class="resident-card-row">
+                <img class="resident-thumb" src="${thumbSrc}" alt="${escapeHtml(`${resident.firstName} ${resident.lastName}`)}">
+                <div class="resident-card-body">
+                    <h3>${escapeHtml(`${resident.firstName} ${resident.lastName}`)}</h3>
+                    <p class="muted">Room ${escapeHtml(resident.roomNumber || "-")}</p>
+                    <p class="medpass-card-status">${dueLabel}</p>
+                </div>
+            </div>
+        `;
+
+        card.onclick = () => {
+            medPassResidentId = resident._id;
+            const select = document.getElementById("medPassResidentSelect");
+            if (select) select.value = resident._id;
+            setPassFinalized(false, "medpass-med-list", "medPassFinalizeButton");
+            resetMedPassCensus();
+            renderMedPassResidentCards(residentsForCards);
+            loadMedPassResidentMeds();
+            openMedPassResidentPage(resident._id, medPassShift || getCurrentTimeslot());
+        };
+
+        container.appendChild(card);
+    });
+}
+
+function toggleMedPassDueOnly() {
+    const checkbox = document.getElementById("medPassDueOnlyToggle");
+    medPassDueOnly = Boolean(checkbox?.checked);
+    populateMedPassResidentSelect();
+    setPassFinalized(false, "medpass-med-list", "medPassFinalizeButton");
+    resetMedPassCensus();
+    loadMedPassResidentMeds();
+}
+
+function openMedPassResidentPage(residentId = medPassResidentId, shift = medPassShift || getCurrentTimeslot()) {
+    if (!residentId) return;
+    const pageUrl = `medpass-resident.html?residentId=${encodeURIComponent(residentId)}&shift=${encodeURIComponent(shift)}`;
+    window.open(pageUrl, "_blank", "noopener,noreferrer");
+}
+
+async function refreshMedPassShiftContext() {
+    if (!medPassShift) medPassShift = getCurrentTimeslot();
+
+    applyMedPassShiftTheme(medPassShift);
+    renderMedPassShiftButtons();
+
+    const dueResidents = await calculateDueResidentsForShift(medPassShift);
+    medPassDueResidentIds = new Set(dueResidents.map((r) => String(r._id)));
+
+    const currentIsDue = medPassResidentId && medPassDueResidentIds.has(String(medPassResidentId));
+    if (!currentIsDue && dueResidents.length) {
+        medPassResidentId = dueResidents[0]._id;
+    } else if (!medPassResidentId && !medPassDueOnly && residents.length) {
+        medPassResidentId = residents[0]._id;
+    }
+
+    populateMedPassResidentSelect();
+    updateMedPassShiftBanner(medPassShift, dueResidents.length);
+}
+
+function onMedPassResidentChange() {
+    const select = document.getElementById("medPassResidentSelect");
+    medPassResidentId = select ? select.value : null;
+    setPassFinalized(false, "medpass-med-list", "medPassFinalizeButton");
+    resetMedPassCensus();
+    const residentsForCards = medPassDueOnly
+        ? residents.filter(r => medPassDueResidentIds.has(String(r._id)))
+        : residents;
+    renderMedPassResidentCards(residentsForCards);
+    loadMedPassResidentMeds();
+    openMedPassResidentPage(medPassResidentId, medPassShift || getCurrentTimeslot());
+}
+
+async function setMedPassShift(shift) {
+    medPassShift = shift;
+    await refreshMedPassShiftContext();
+    setPassFinalized(false, "medpass-med-list", "medPassFinalizeButton");
+    resetMedPassCensus();
+    loadMedPassResidentMeds();
+}
+
+async function loadMedPassPage(forceResidentsReload = false) {
+    if (!currentUser || !["admin", "medtech", "rn"].includes(currentUser.role)) {
+        return;
+    }
+
+    try {
+        await ensureResidentsLoaded(forceResidentsReload);
+        if (!medPassShift) medPassShift = getCurrentTimeslot();
+        await refreshMedPassShiftContext();
+        setPassFinalized(false, "medpass-med-list", "medPassFinalizeButton");
+        resetMedPassCensus();
+        loadMedPassResidentMeds();
+    } catch (err) {
+        console.error("Error loading Med Pass page:", err);
+        updateMedPassSummary("Unable to load Med Pass data.");
+    }
+}
+
+function loadMedPassResidentMeds() {
+    const list = document.getElementById("medpass-med-list");
+    if (!list) return;
+
+    if (!medPassResidentId) {
+        list.innerHTML = "";
+        const message = medPassDueOnly
+            ? `No residents due for ${medPassShift || getCurrentTimeslot()} shift.`
+            : "Select a resident and shift to begin med pass.";
+        updateMedPassSummary(message);
+        resetMedPassCensus();
+        return;
+    }
+
+    const resident = residents.find(r => String(r._id) === String(medPassResidentId));
+    const residentName = resident ? `${resident.firstName} ${resident.lastName}`.trim() : "Selected resident";
+
+    loadMedications(medPassResidentId, { listId: "medpass-med-list", slot: medPassShift })
+        .then((stats) => {
+            if (!stats) return;
+            updateMedPassSummary(`${residentName} • Shift ${medPassShift} • ${stats.rendered} medication(s) ready.`);
+            loadMedPassCensus(medPassResidentId, medPassShift, stats.filtered);
+        })
+        .catch((err) => {
+            console.error("Error loading Med Pass medications:", err);
+            updateMedPassSummary("Unable to load medications for this resident and shift.");
+            resetMedPassCensus();
+        });
+}
+
+function finalizeMedPassShift() {
+    if (!medPassResidentId) {
+        alert("Please select a resident before finalizing the shift pass.");
+        return;
+    }
+    finalizeMedicationPass("medpass-med-list", medPassResidentId, medPassShift || getCurrentTimeslot());
+}
+
 function registerNewUser(event) {
     event.preventDefault();
     const name = document.getElementById("regName")?.value.trim();
@@ -471,7 +831,7 @@ function showPage(pageId) {
     if (pageId === "dashboardPage") document.getElementById("nav-dashboard").classList.add("active-nav");
     if (pageId === "residentsPage") document.getElementById("nav-residents").classList.add("active-nav");
     if (pageId === "medicationsPage") document.getElementById("nav-meds").classList.add("active-nav");
-    // medpass pages removed
+    if (pageId === "medPassPage") document.getElementById("nav-medpass").classList.add("active-nav");
     if (pageId === "marPage") document.getElementById("nav-mar").classList.add("active-nav");
     if (pageId === "billingPage") document.getElementById("nav-billing").classList.add("active-nav");
     if (pageId === "registerPage") document.getElementById("nav-register").classList.add("active-nav");
@@ -497,6 +857,13 @@ function showPage(pageId) {
             showPage("billingPage");
             return;
         }
+    }
+    if (pageId === "medPassPage") {
+        if (!currentUser || !["admin", "medtech", "rn"].includes(currentUser.role)) {
+            showPage(currentUser && currentUser.role === "poa" ? "billingPage" : "dashboardPage");
+            return;
+        }
+        loadMedPassPage();
     }
     if (pageId === "billingPage") {
         if (!currentUser || !["admin", "poa"].includes(currentUser.role)) {
@@ -711,8 +1078,8 @@ function openResidentProfile(id) {
     // control visibility of med pass buttons for admin/medtech only
     const finalizeBtn = document.getElementById("finalizePassButton");
     const addMedBtn = document.querySelector(".section-header-row-actions button[onclick=\"openAddMedPanel()\"]");
-    if (finalizeBtn) finalizeBtn.style.display = (currentUser && (currentUser.role === "admin" || currentUser.role === "medtech")) ? "inline-block" : "none";
-    if (addMedBtn) addMedBtn.style.display = (currentUser && (currentUser.role === "admin" || currentUser.role === "medtech")) ? "inline-block" : "none";
+    if (finalizeBtn) finalizeBtn.style.display = (currentUser && ["admin", "medtech", "rn"].includes(currentUser.role)) ? "inline-block" : "none";
+    if (addMedBtn) addMedBtn.style.display = (currentUser && ["admin", "medtech", "rn"].includes(currentUser.role)) ? "inline-block" : "none";
 
     // ensure add-med panel is closed when opening a profile
     closeAddMedPanel();
@@ -721,6 +1088,7 @@ function openResidentProfile(id) {
 // Side panel controls for Add Medication
 function openAddMedPanel() {
     const panel = document.getElementById("addMedPanel");
+    setMedicationPanelMode("create");
     if (panel) panel.style.display = "block";
 }
 
@@ -730,6 +1098,82 @@ function closeAddMedPanel() {
     const form = document.getElementById("addMedForm");
     if (form) form.reset();
     resetMedTimeRows();
+    setMedicationPanelMode("create");
+}
+
+function setMedicationPanelMode(mode, med = null) {
+    const title = document.getElementById("addMedPanelTitle");
+    const submitButton = document.getElementById("addMedSubmitButton");
+
+    if (mode === "edit" && med) {
+        editingMedicationId = med._id;
+        if (title) title.textContent = "Edit Medication";
+        if (submitButton) submitButton.textContent = "Update Medication";
+        return;
+    }
+
+    editingMedicationId = null;
+    if (title) title.textContent = "Add Medication";
+    if (submitButton) submitButton.textContent = "Save Medication";
+}
+
+function setMedicationTimesRows(times = []) {
+    const container = document.getElementById("medTimesContainer");
+    if (!container) return;
+
+    const list = Array.isArray(times) && times.length ? times : [""];
+    container.innerHTML = "";
+
+    list.forEach((entry) => {
+        let timeValue = "";
+        let periodValue = "AM";
+
+        const m12 = String(entry || "").trim().match(/^(\d{1,2}:\d{2})\s*(AM|PM)$/i);
+        if (m12) {
+            timeValue = m12[1];
+            periodValue = m12[2].toUpperCase();
+        }
+
+        const row = document.createElement("div");
+        row.className = "time-row";
+        row.innerHTML = `
+            <input type="text" class="med-time-input" placeholder="08:00" required value="${escapeHtml(timeValue)}">
+            <select class="med-time-period" aria-label="AM or PM">
+                <option ${periodValue === "AM" ? "selected" : ""}>AM</option>
+                <option ${periodValue === "PM" ? "selected" : ""}>PM</option>
+            </select>
+            <button type="button" class="secondary-btn small-btn" onclick="removeMedTimeRow(this)">Remove</button>
+        `;
+        container.appendChild(row);
+    });
+
+    updateMedTimeButtons();
+}
+
+function startMedicationEdit(medicationId) {
+    const med = medicationCache.get(medicationId);
+    if (!med) {
+        alert("Medication details could not be loaded. Please refresh and try again.");
+        return;
+    }
+
+    setMedicationPanelMode("edit", med);
+    const panel = document.getElementById("addMedPanel");
+    if (panel) panel.style.display = "block";
+
+    const nameInput = document.getElementById("medName");
+    const doseInput = document.getElementById("medDose");
+    const routeInput = document.getElementById("medRoute");
+    const freqInput = document.getElementById("medFreq");
+    const instrInput = document.getElementById("medInstr");
+
+    if (nameInput) nameInput.value = med.name || "";
+    if (doseInput) doseInput.value = med.dosage || "";
+    if (routeInput) routeInput.value = med.route || "";
+    if (freqInput) freqInput.value = med.frequency || "";
+    if (instrInput) instrInput.value = med.instructions || "";
+
+    setMedicationTimesRows(med.times || []);
 }
 
 function addMedTimeRow() {
@@ -1132,21 +1576,55 @@ function setResidentInvoiceCount(count) {
 
 function medIsScheduledForSlot(med, slot) {
     if (!med) return false;
-    const times = Array.isArray(med.times) ? med.times.map(t => t.toUpperCase()) : [];
-    if (times.includes(slot)) return true;
+    const times = Array.isArray(med.times) ? med.times : [];
+    if (times.some(t => String(t).toUpperCase() === slot)) return true;
+
+    for (const tRaw of times) {
+        const t = parseTimeToMinutes(tRaw);
+        if (t == null) continue;
+        if (isTimeInSlot(t, slot)) return true;
+    }
+
     // med.time might be "08:00" or similar
     if (med.time) {
         const t = parseTimeToMinutes(med.time);
         if (t == null) return false;
-        // slot windows (same as getCurrentTimeslot)
-        const AM_START = 6 * 60, AM_END = 14 * 60;
-        const PM_START = 14 * 60, PM_END = 22 * 60 + 30;
-        const NOC_START = 22 * 60, NOC_END = 6 * 60;
-        if (slot === "AM") return t >= AM_START && t < AM_END;
-        if (slot === "PM") return t >= PM_START && t < PM_END;
-        if (slot === "NOC") return (t >= NOC_START) || (t < NOC_END);
+        return isTimeInSlot(t, slot);
     }
+
+    if (med.frequency) {
+        return med.frequency.toUpperCase().includes(slot);
+    }
+
     return false;
+}
+
+function isTimeInSlot(minutes, slot) {
+    if (slot === "AM") return minutes >= SHIFT_WINDOWS.AM.start && minutes < SHIFT_WINDOWS.AM.end;
+    if (slot === "PM") return minutes >= SHIFT_WINDOWS.PM.start && minutes < SHIFT_WINDOWS.PM.end;
+    if (slot === "NOC") return minutes >= SHIFT_WINDOWS.NOC.start || minutes < SHIFT_WINDOWS.NOC.end;
+    return false;
+}
+
+function getScheduledTimeForSlot(med, slot) {
+    const medTimes = Array.isArray(med?.times) ? med.times : [];
+    const matching = medTimes.find(t => {
+        const asSlot = String(t).toUpperCase();
+        if (asSlot === slot) return true;
+        const parsed = parseTimeToMinutes(t);
+        return parsed != null && isTimeInSlot(parsed, slot);
+    });
+
+    if (matching) return matching;
+
+    if (med?.time) return med.time;
+    if (med?.frequency) return med.frequency;
+    return slot;
+}
+
+function normalizeMedStatus(status) {
+    const allowed = ["given", "held", "refused", "prn"];
+    return allowed.includes(status) ? status : "held";
 }
 
 function parseTimeToMinutes(timeStr) {
@@ -1268,101 +1746,140 @@ function deleteResident(id) {
 // LOAD MEDICATIONS
 // =========================
 
-function loadMedications(residentId) {
+function loadMedications(residentId, options = {}) {
     if (currentUser && currentUser.role === "poa") {
-        return;
+        return Promise.resolve({ rendered: 0, total: 0, filtered: 0 });
     }
 
-    authFetch(`${API_BASE}/medications/${residentId}`)
+    const listId = options.listId || "med-list";
+    const slot = options.slot || currentMedTimeslot || getCurrentTimeslot();
+
+    return authFetch(`${API_BASE}/medications/${residentId}`)
         .then(meds => {
-            const medList = document.getElementById("med-list");
-            if (!medList) return;
+            const medList = document.getElementById(listId);
+            if (!medList) return { rendered: 0, total: 0, filtered: 0 };
 
             medList.innerHTML = "";
 
             if (!meds.length) {
                 medList.innerHTML = `<li class="muted">No medications on file.</li>`;
-                return;
+                if (listId === "med-list") medicationCache.clear();
+                return { rendered: 0, total: 0, filtered: 0 };
             }
 
-            const slot = currentMedTimeslot || getCurrentTimeslot();
+            if (listId === "med-list" || listId === "medpass-med-list") {
+                medicationCache.clear();
+                meds.forEach(m => medicationCache.set(m._id, m));
+            }
 
             const filtered = meds.filter(m => medIsScheduledForSlot(m, slot));
 
             // if none match the slot, show all but grayed out state is handled on cards
             const toRender = filtered.length ? filtered : meds;
+            const canManageMeds = currentUser && ["admin", "medtech", "rn"].includes(currentUser.role);
 
             toRender.forEach(med => {
                 const li = document.createElement("li");
                 const scheduledTimes = Array.isArray(med.times) && med.times.length ? med.times.join(", ") : "";
                 const timeText = scheduledTimes || med.time || med.frequency || "ASAP";
-                const scheduledTime = Array.isArray(med.times) && med.times.length ? med.times[0] : med.time || med.frequency || "ASAP";
+                const draftStatus = normalizeMedStatus(medicationDraftStatus.get(med._id));
+
+                if (!medicationDraftStatus.has(med._id)) {
+                    medicationDraftStatus.set(med._id, draftStatus);
+                }
 
                 li.innerHTML = `
                     <div class="med-card ${filtered.length ? '' : 'muted-med'}">
-                        <label class="med-card-checkbox">
-                            <input type="checkbox" class="med-given-checkbox" aria-label="Mark ${med.name} given">
-                            <span class="custom-check"></span>
-                        </label>
                         <div class="med-left">
                             <strong>${med.name}</strong>
                             <p>${med.dosage} — ${med.route}</p>
                             <small>${timeText}</small><br>
                             <small>${med.instructions || ""}</small>
                         </div>
+                        <div class="med-actions">
+                            <select class="med-status-select" aria-label="Set status for ${med.name}">
+                                <option value="given" ${draftStatus === "given" ? "selected" : ""}>Given</option>
+                                <option value="held" ${draftStatus === "held" ? "selected" : ""}>Held</option>
+                                <option value="refused" ${draftStatus === "refused" ? "selected" : ""}>Refused</option>
+                                <option value="prn" ${draftStatus === "prn" ? "selected" : ""}>PRN</option>
+                            </select>
+                            ${canManageMeds ? `<button type="button" class="secondary-btn small-btn med-action-btn" onclick="event.stopPropagation(); startMedicationEdit('${med._id}')">Edit</button>` : ""}
+                            ${canManageMeds ? `<button type="button" class="secondary-btn small-btn med-action-btn" onclick="event.stopPropagation(); openPrnFollowupModal('${med._id}')">PRN Follow-up</button>` : ""}
+                            ${canManageMeds ? `<button type="button" class="secondary-btn small-btn med-action-btn" onclick="event.stopPropagation(); deleteMedication('${med._id}')">Delete</button>` : ""}
+                        </div>
                     </div>
                 `;
 
-                const checkbox = li.querySelector(".med-given-checkbox");
-                if (checkbox) {
-                    li.dataset.med = JSON.stringify(med);
-                    checkbox.dataset.medId = med._id;
-                    const draftStatus = medicationDraftStatus.get(med._id);
-                    checkbox.checked = draftStatus === "given";
+                const statusSelect = li.querySelector(".med-status-select");
+                const card = li.querySelector(".med-card");
+                li.dataset.med = JSON.stringify(med);
+                li.dataset.medId = med._id;
 
-                    checkbox.addEventListener("change", () => {
-                        medicationDraftStatus.set(med._id, checkbox.checked ? "given" : "held");
-                        const card = checkbox.closest(".med-card");
-                        if (card) card.classList.toggle("given", checkbox.checked);
+                if (card) {
+                    card.classList.add(`status-${draftStatus}`);
+                }
+
+                if (statusSelect) {
+                    statusSelect.addEventListener("change", () => {
+                        const nextStatus = normalizeMedStatus(statusSelect.value);
+                        medicationDraftStatus.set(med._id, nextStatus);
+                        if (card) {
+                            card.classList.remove("status-given", "status-held", "status-refused", "status-prn");
+                            card.classList.add(`status-${nextStatus}`);
+                        }
                     });
                 }
 
                 medList.appendChild(li);
             });
+
+            return { rendered: toRender.length, total: meds.length, filtered: filtered.length };
         })
-        .catch(err => console.error("Error loading medications:", err));
+        .catch(err => {
+            console.error("Error loading medications:", err);
+            throw err;
+        });
 }
 
-let heldReasonQueue = [];
-let currentHeldReasonIndex = 0;
+let statusReasonQueue = [];
+let currentStatusReasonIndex = 0;
 
-function finalizeMedicationPass() {
-    if (!currentResidentId) {
+function finalizeMedicationPass(listId = "med-list", residentIdOverride = null, slotOverride = null) {
+    const targetResidentId = residentIdOverride || currentResidentId;
+    const targetSlot = slotOverride || currentMedTimeslot || getCurrentTimeslot();
+
+    if (!targetResidentId) {
         alert("Please select a resident before finalizing the medication pass.");
         return;
     }
 
-    const medList = document.getElementById("med-list");
+    const medList = document.getElementById(listId);
     if (!medList) return;
 
-    const heldItems = [];
+    pendingFinalizeContext = {
+        listId,
+        residentId: targetResidentId,
+        slot: targetSlot,
+        finalizeButtonId: listId === "medpass-med-list" ? "medPassFinalizeButton" : "finalizePassButton"
+    };
+
+    const reasonRequiredItems = [];
 
     medList.querySelectorAll("li").forEach(item => {
-        const checkbox = item.querySelector(".med-given-checkbox");
-        const medId = checkbox?.dataset.medId;
-        const med = checkbox ? JSON.parse(item.dataset.med) : null;
+        const medId = item.dataset.medId;
+        const med = item.dataset.med ? JSON.parse(item.dataset.med) : null;
         if (!med || !medId) return;
 
-        const selectedStatus = medicationDraftStatus.get(medId) || "held";
-        if (selectedStatus === "held") {
-            heldItems.push({ med, medId });
+        const selectedStatus = normalizeMedStatus(medicationDraftStatus.get(medId));
+        if (selectedStatus === "held" || selectedStatus === "prn") {
+            reasonRequiredItems.push({ med, medId, status: selectedStatus });
         }
     });
 
-    heldReasonQueue = heldItems;
-    currentHeldReasonIndex = 0;
+    statusReasonQueue = reasonRequiredItems;
+    currentStatusReasonIndex = 0;
 
-    if (heldReasonQueue.length) {
+    if (statusReasonQueue.length) {
         openHeldReasonModal();
     } else {
         saveMedicationPass();
@@ -1376,8 +1893,9 @@ function openHeldReasonModal() {
 
     if (!modal || !heldText || !reasonInput) return;
 
-    const currentMed = heldReasonQueue[currentHeldReasonIndex];
-    heldText.textContent = `Why was ${currentMed.med.name} held?`;
+    const currentMed = statusReasonQueue[currentStatusReasonIndex];
+    const actionWord = currentMed.status === "prn" ? "given PRN" : "held";
+    heldText.textContent = `Please provide the reason ${currentMed.med.name} was ${actionWord}.`;
     reasonInput.value = "";
     modal.style.display = "flex";
     reasonInput.focus();
@@ -1397,15 +1915,15 @@ if (heldReasonForm) {
 
         const reason = reasonInput.value.trim();
         if (!reason) {
-            alert("Please enter a reason for held medication.");
+            alert("Please enter a reason before continuing.");
             return;
         }
 
-        const item = heldReasonQueue[currentHeldReasonIndex];
+        const item = statusReasonQueue[currentStatusReasonIndex];
         item.reason = reason;
-        currentHeldReasonIndex += 1;
+        currentStatusReasonIndex += 1;
 
-        if (currentHeldReasonIndex < heldReasonQueue.length) {
+        if (currentStatusReasonIndex < statusReasonQueue.length) {
             openHeldReasonModal();
         } else {
             cancelHeldReasonPrompt();
@@ -1417,41 +1935,40 @@ if (heldReasonForm) {
 // medpass confirmation handlers removed
 
 function saveMedicationPass() {
-    const medList = document.getElementById("med-list");
+    const context = pendingFinalizeContext || {
+        listId: "med-list",
+        residentId: currentResidentId,
+        slot: currentMedTimeslot || getCurrentTimeslot(),
+        finalizeButtonId: "finalizePassButton"
+    };
+
+    const medList = document.getElementById(context.listId);
     if (!medList) return;
 
     const promises = [];
+    const slot = context.slot || getCurrentTimeslot();
 
     medList.querySelectorAll("li").forEach(item => {
-        const checkbox = item.querySelector(".med-given-checkbox");
-        const medId = checkbox?.dataset.medId;
-        const med = checkbox ? JSON.parse(item.dataset.med) : null;
+        const medId = item.dataset.medId;
+        const med = item.dataset.med ? JSON.parse(item.dataset.med) : null;
         if (!med || !medId) return;
 
-        const selectedStatus = medicationDraftStatus.get(medId) || "held";
-        const scheduledTime = Array.isArray(med.times) && med.times.length ? med.times[0] : med.time || med.frequency || "ASAP";
-        const heldItem = heldReasonQueue.find(entry => entry.medId === medId);
-        const reason = heldItem ? heldItem.reason : undefined;
+        const selectedStatus = normalizeMedStatus(medicationDraftStatus.get(medId));
+        const scheduledTime = getScheduledTimeForSlot(med, slot);
+        const queuedItem = statusReasonQueue.find(entry => entry.medId === medId);
+        const reason = queuedItem ? queuedItem.reason : undefined;
 
         promises.push(
-            fetch(`${API_BASE}/mar`, {
+            authFetch(`${API_BASE}/mar`, {
                 method: "POST",
-                headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    residentId: currentResidentId,
+                    residentId: context.residentId,
                     medicationId: medId,
                     scheduledTime,
                     status: selectedStatus,
-                    staffName: "Medication Tech",
                     reason
                 })
             })
-                .then(async response => {
-                    if (!response.ok) {
-                        const error = await response.json().catch(() => ({}));
-                        throw new Error(error.error || "Failed to finalize medication pass");
-                    }
-                })
         );
     });
 
@@ -1464,15 +1981,23 @@ function saveMedicationPass() {
         .then(() => {
             alert("Medication pass finalized.");
             medicationDraftStatus.clear();
-            heldReasonQueue = [];
-            currentHeldReasonIndex = 0;
-            loadMedications(currentResidentId);
-            loadMarLog(currentResidentId);
-            setPassFinalized(true);
+            statusReasonQueue = [];
+            currentStatusReasonIndex = 0;
+            if (context.listId === "medpass-med-list") {
+                loadMedications(context.residentId, { listId: "medpass-med-list", slot: slot })
+                    .then((stats) => loadMedPassCensus(context.residentId, slot, stats?.filtered || 0))
+                    .catch(() => resetMedPassCensus());
+            } else {
+                loadMedications(context.residentId);
+                loadMarLog(context.residentId);
+            }
+            setPassFinalized(true, context.listId, context.finalizeButtonId);
+            pendingFinalizeContext = null;
         })
         .catch(err => {
             console.error("Error finalizing medication pass:", err);
-            alert("Unable to finalize medication pass. Try again.");
+            alert(err.message || "Unable to finalize medication pass. Try again.");
+            pendingFinalizeContext = null;
         });
 }
 
@@ -1499,6 +2024,12 @@ if (addMedForm) {
             return timeValue ? `${timeValue} ${periodValue}`.trim() : "";
         }).filter(Boolean);
 
+        const invalidTime = medTimes.find(t => parseTimeToMinutes(t) == null);
+        if (invalidTime) {
+            alert(`Invalid medication time: ${invalidTime}. Use HH:MM format.`);
+            return;
+        }
+
         const medData = {
             name: document.getElementById("medName")?.value || "",
             dosage: document.getElementById("medDose")?.value || "",
@@ -1509,19 +2040,132 @@ if (addMedForm) {
             residentId: currentResidentId
         };
 
-        fetch(`${API_BASE}/medications`, {
-            method: "POST",
-            headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        if (!medData.name.trim()) {
+            alert("Medication name is required.");
+            return;
+        }
+
+        const isEdit = Boolean(editingMedicationId);
+        const endpoint = isEdit ? `${API_BASE}/medications/${editingMedicationId}` : `${API_BASE}/medications`;
+        const method = isEdit ? "PUT" : "POST";
+
+        authFetch(endpoint, {
+            method,
             body: JSON.stringify(medData)
         })
-            .then(res => res.json())
             .then(() => {
                 loadMedications(currentResidentId);
                 addMedForm.reset();
                 closeAddMedPanel();
+                loadResidentCards();
             })
-            .catch(err => console.error("Error adding medication:", err));
+            .catch(err => {
+                console.error("Error adding medication:", err);
+                alert(err.message || "Unable to save medication.");
+            });
     });
+}
+
+function openPrnFollowupModal(medicationId) {
+    if (!currentResidentId) {
+        alert("Please select a resident first.");
+        return;
+    }
+    const med = medicationCache.get(medicationId);
+    if (!med) {
+        alert("Medication details could not be loaded. Please refresh and try again.");
+        return;
+    }
+
+    prnFollowupMedicationId = medicationId;
+    const prompt = document.getElementById("prnFollowupPrompt");
+    const notes = document.getElementById("prnFollowupNotes");
+    const modal = document.getElementById("prnFollowupModal");
+
+    if (prompt) prompt.textContent = `Document follow-up for ${med.name}. Notes are required.`;
+    if (notes) notes.value = "";
+    if (modal) modal.style.display = "flex";
+    if (notes) notes.focus();
+}
+
+function closePrnFollowupModal() {
+    const modal = document.getElementById("prnFollowupModal");
+    const notes = document.getElementById("prnFollowupNotes");
+    prnFollowupMedicationId = null;
+    if (modal) modal.style.display = "none";
+    if (notes) notes.value = "";
+}
+
+const prnFollowupForm = document.getElementById("prnFollowupForm");
+if (prnFollowupForm) {
+    prnFollowupForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+
+        if (!currentResidentId || !prnFollowupMedicationId) {
+            alert("Missing resident or medication for PRN follow-up.");
+            return;
+        }
+
+        const notes = document.getElementById("prnFollowupNotes")?.value.trim() || "";
+        if (!notes) {
+            alert("Follow-up notes are required.");
+            return;
+        }
+
+        const med = medicationCache.get(prnFollowupMedicationId);
+        if (!med) {
+            alert("Medication details could not be loaded. Please refresh and try again.");
+            return;
+        }
+
+        const slot = currentMedTimeslot || getCurrentTimeslot();
+        const scheduledTime = getScheduledTimeForSlot(med, slot) || "PRN";
+
+        authFetch(`${API_BASE}/mar`, {
+            method: "POST",
+            body: JSON.stringify({
+                residentId: currentResidentId,
+                medicationId: prnFollowupMedicationId,
+                scheduledTime,
+                status: "prn-followup",
+                notes
+            })
+        })
+            .then(() => {
+                closePrnFollowupModal();
+                loadMarLog(currentResidentId);
+                loadGlobalMarLog();
+                alert("PRN follow-up saved.");
+            })
+            .catch(err => {
+                console.error("Error saving PRN follow-up:", err);
+                alert(err.message || "Unable to save PRN follow-up.");
+            });
+    });
+}
+
+function deleteMedication(medicationId) {
+    if (!medicationId) return;
+    if (!currentUser || !["admin", "medtech", "rn"].includes(currentUser.role)) {
+        alert("You do not have permission to delete medications.");
+        return;
+    }
+
+    if (!confirm("Delete this medication?")) return;
+
+    authFetch(`${API_BASE}/medications/${medicationId}`, { method: "DELETE" })
+        .then(() => {
+            medicationDraftStatus.delete(medicationId);
+            medicationCache.delete(medicationId);
+            if (currentResidentId) {
+                loadMedications(currentResidentId);
+                loadResidentCards();
+            }
+        })
+        .catch(err => {
+            console.error("Error deleting medication:", err);
+            alert(err.message || "Unable to delete medication.");
+        });
 }
 
 const addInvoiceForm = document.getElementById("addInvoiceForm");
@@ -1639,7 +2283,9 @@ function loadMarLog(residentId) {
                 div.innerHTML = `
                     <strong>${medName}</strong>
                     <p>Status: ${entry.status}</p>
+                    <p>Scheduled: ${entry.scheduledTime || "N/A"}</p>
                     ${entry.reason ? `<p>Reason: ${entry.reason}</p>` : ""}
+                    ${entry.staffName ? `<p>By: ${entry.staffName}</p>` : ""}
                     <p class="muted">${formattedTime}</p>
                 `;
 
@@ -1674,7 +2320,9 @@ function loadGlobalMarLog() {
                 div.innerHTML = `
                     <strong>${medName} — <small>${residentName} (${entry.residentId?.roomNumber || '—'})</small></strong>
                     <p>Status: ${entry.status}</p>
+                    <p>Scheduled: ${entry.scheduledTime || "N/A"}</p>
                     ${entry.reason ? `<p>Reason: ${entry.reason}</p>` : ""}
+                    ${entry.staffName ? `<p>By: ${entry.staffName}</p>` : ""}
                     <p class="muted">${formattedTime}</p>
                 `;
 

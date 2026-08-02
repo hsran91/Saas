@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resident Medication View</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .medpass-popup-shell {
+            min-height: 100vh;
+            padding: 24px;
+            background: radial-gradient(circle at top left, #0f172a, #020617);
+            color: #e5e7eb;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        .popup-wrap {
+            max-width: 980px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .popup-card {
+            border: 1px solid #1f2937;
+            border-radius: 12px;
+            background: #020617;
+            padding: 14px;
+        }
+
+        .popup-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .popup-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .popup-shift-controls {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+
+        .popup-shift {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid #334155;
+            border-radius: 999px;
+            padding: 6px 12px;
+            font-size: 13px;
+            color: #cbd5e1;
+            margin-top: 6px;
+        }
+
+        .popup-med-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 8px;
+        }
+
+        .popup-med-list li {
+            border: 1px solid #1f2937;
+            border-radius: 10px;
+            padding: 10px 12px;
+            background: #030a18;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .popup-med-list li.status-given {
+            border-color: #22c55e;
+            background: rgba(34, 197, 94, 0.12);
+        }
+
+        .popup-med-list li.status-held {
+            border-color: #f59e0b;
+            background: rgba(245, 158, 11, 0.12);
+        }
+
+        .popup-med-list li.status-refused {
+            border-color: #ef4444;
+            background: rgba(239, 68, 68, 0.12);
+        }
+
+        .popup-med-list li.status-prn {
+            border-color: #38bdf8;
+            background: rgba(56, 189, 248, 0.12);
+        }
+
+        .popup-med-main {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .popup-med-status {
+            width: 132px;
+            background: #020617;
+            border: 1px solid #1f2937;
+            color: #e5e7eb;
+            border-radius: 8px;
+            padding: 6px 8px;
+        }
+
+        .popup-med-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            align-items: flex-end;
+        }
+
+        .popup-followup-btn {
+            min-width: 132px;
+            text-align: center;
+        }
+
+        .popup-med-list .med-title {
+            font-weight: 700;
+            color: #e5e7eb;
+        }
+
+        .popup-med-meta {
+            color: #cbd5e1;
+            font-size: 13px;
+            margin-top: 4px;
+        }
+
+        .popup-empty {
+            color: #9ca3af;
+        }
+
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(2, 6, 23, 0.78);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal {
+            background: #020617;
+            border: 1px solid #1f2937;
+            border-radius: 12px;
+            width: min(500px, 94vw);
+            padding: 14px;
+        }
+
+        .modal h3 {
+            margin-bottom: 10px;
+        }
+
+        .modal textarea {
+            width: 100%;
+            background: #030a18;
+            color: #e5e7eb;
+            border: 1px solid #1f2937;
+            border-radius: 8px;
+            padding: 8px;
+            min-height: 90px;
+        }
+
+        .modal-actions {
+            margin-top: 10px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+    </style>
+</head>
+<body>
+<div class="medpass-popup-shell">
+    <div class="popup-wrap">
+        <section class="popup-card">
+            <div class="popup-header">
+                <div>
+                    <h1 id="residentName">Resident Medications</h1>
+                    <p id="residentRoom" class="muted"></p>
+                    <div class="popup-shift" id="shiftBadge">Shift: --</div>
+                    <div class="popup-shift-controls" role="group" aria-label="Shift selector">
+                        <button class="secondary-btn" type="button" data-shift="AM">AM</button>
+                        <button class="secondary-btn" type="button" data-shift="PM">PM</button>
+                        <button class="secondary-btn" type="button" data-shift="NOC">NOC</button>
+                    </div>
+                </div>
+                <div class="popup-actions">
+                    <button class="secondary-btn" id="finalizeButton" type="button">Finalize Shift Pass</button>
+                    <button class="secondary-btn" id="refreshButton" type="button">Refresh</button>
+                    <button class="primary-btn" type="button" onclick="window.close()">Close</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="popup-card">
+            <h3>Due In Selected Shift</h3>
+            <ul id="medList" class="popup-med-list"></ul>
+            <p id="emptyState" class="popup-empty" style="display:none;">No medications are scheduled in this shift window.</p>
+        </section>
+    </div>
+</div>
+
+<div id="reasonModal" class="modal-backdrop" style="display:none;">
+    <div class="modal">
+        <h3 id="reasonModalTitle">Reason Required</h3>
+        <textarea id="reasonInput" placeholder="Enter reason..."></textarea>
+        <div class="modal-actions">
+            <button type="button" class="secondary-btn" id="reasonCancelButton">Cancel</button>
+            <button type="button" class="primary-btn" id="reasonSaveButton">Save Reason</button>
+        </div>
+    </div>
+</div>
+
+<div id="prnFollowupModal" class="modal-backdrop" style="display:none;">
+    <div class="modal">
+        <h3 id="prnFollowupTitle">PRN Follow-up</h3>
+        <textarea id="prnFollowupNotes" placeholder="Enter PRN follow-up notes..."></textarea>
+        <div class="modal-actions">
+            <button type="button" class="secondary-btn" id="prnFollowupCancelButton">Cancel</button>
+            <button type="button" class="primary-btn" id="prnFollowupSaveButton">Save Follow-up</button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    const API_BASE = window.location.protocol === "file:" ? "http://localhost:5000" : "";
+    const SHIFT_WINDOWS = {
+        AM: { start: 6 * 60, end: 14 * 60, label: "06:00 - 14:00" },
+        PM: { start: 14 * 60, end: 22 * 60, label: "14:00 - 22:00" },
+        NOC: { start: 22 * 60, end: 6 * 60, label: "22:00 - 06:00" }
+    };
+
+    const params = new URLSearchParams(window.location.search);
+    const residentId = params.get("residentId") || "";
+    let shift = (params.get("shift") || "AM").toUpperCase();
+    let currentMeds = [];
+    const medicationDraftStatus = new Map();
+    let reasonQueue = [];
+    let reasonIndex = 0;
+    let prnFollowupMedication = null;
+    let lastPrnFollowupByMed = new Map();
+
+    function getToken() {
+        return localStorage.getItem("authToken");
+    }
+
+    function authFetch(url, options = {}) {
+        const token = getToken();
+        const headers = {
+            ...(options.headers || {}),
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+        };
+        if (!(options.body instanceof FormData) && !headers["Content-Type"]) {
+            headers["Content-Type"] = "application/json";
+        }
+
+        return fetch(url, { ...options, headers }).then(async (res) => {
+            if (!res.ok) {
+                const payload = await res.json().catch(() => ({}));
+                throw new Error(payload.error || payload.message || "Request failed");
+            }
+            return res.json();
+        });
+    }
+
+    function parseTimeToMinutes(timeStr) {
+        if (!timeStr) return null;
+        const m24 = String(timeStr).match(/^(\d{1,2}):(\d{2})$/);
+        if (m24) return Number(m24[1]) * 60 + Number(m24[2]);
+        const m12 = String(timeStr).match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+        if (m12) {
+            let h = Number(m12[1]);
+            const mm = Number(m12[2]);
+            const ampm = m12[3].toUpperCase();
+            if (ampm === "PM" && h !== 12) h += 12;
+            if (ampm === "AM" && h === 12) h = 0;
+            return h * 60 + mm;
+        }
+        return null;
+    }
+
+    function isTimeInSlot(minutes, slot) {
+        if (slot === "AM") return minutes >= SHIFT_WINDOWS.AM.start && minutes < SHIFT_WINDOWS.AM.end;
+        if (slot === "PM") return minutes >= SHIFT_WINDOWS.PM.start && minutes < SHIFT_WINDOWS.PM.end;
+        if (slot === "NOC") return minutes >= SHIFT_WINDOWS.NOC.start || minutes < SHIFT_WINDOWS.NOC.end;
+        return false;
+    }
+
+    function medIsScheduledForShift(med, slot) {
+        if (!med) return false;
+        const times = Array.isArray(med.times) ? med.times : [];
+        if (times.some(t => String(t).toUpperCase() === slot)) return true;
+        for (const tRaw of times) {
+            const t = parseTimeToMinutes(tRaw);
+            if (t != null && isTimeInSlot(t, slot)) return true;
+        }
+        if (med.time) {
+            const t = parseTimeToMinutes(med.time);
+            if (t != null) return isTimeInSlot(t, slot);
+        }
+        if (med.frequency) return String(med.frequency).toUpperCase().includes(slot);
+        return false;
+    }
+
+    function setHeader(resident) {
+        const nameEl = document.getElementById("residentName");
+        const roomEl = document.getElementById("residentRoom");
+        const badge = document.getElementById("shiftBadge");
+        if (nameEl) nameEl.textContent = resident ? `${resident.firstName || ""} ${resident.lastName || ""}`.trim() : "Resident";
+        if (roomEl) roomEl.textContent = resident ? `Room ${resident.roomNumber || "-"}` : "";
+        if (badge) badge.textContent = `Shift: ${shift} (${SHIFT_WINDOWS[shift]?.label || ""})`;
+        document.querySelectorAll("[data-shift]").forEach((btn) => {
+            btn.classList.toggle("active-shift", btn.getAttribute("data-shift") === shift);
+        });
+    }
+
+    function normalizeStatus(status) {
+        const allowed = ["given", "held", "refused", "prn"];
+        return allowed.includes(status) ? status : "held";
+    }
+
+    function getScheduledTimeForShift(med) {
+        const times = Array.isArray(med.times) ? med.times : [];
+        const matching = times.find((t) => {
+            const upper = String(t).toUpperCase();
+            if (upper === shift) return true;
+            const parsed = parseTimeToMinutes(t);
+            return parsed != null && isTimeInSlot(parsed, shift);
+        });
+        if (matching) return matching;
+        if (med.time) return med.time;
+        if (med.frequency) return med.frequency;
+        return shift;
+    }
+
+    function buildLastPrnFollowupIndex(entries) {
+        const index = new Map();
+        (Array.isArray(entries) ? entries : []).forEach((entry) => {
+            if (entry.status !== "prn-followup") return;
+            const medId = entry.medicationId?._id || entry.medicationId;
+            if (!medId) return;
+            const ts = new Date(entry.actualTime || entry.createdAt || 0).getTime();
+            if (!Number.isFinite(ts) || ts <= 0) return;
+
+            const key = String(medId);
+            const existing = index.get(key);
+            if (!existing || ts > existing.ts) {
+                index.set(key, { ts });
+            }
+        });
+        return index;
+    }
+
+    function renderMeds(meds) {
+        const list = document.getElementById("medList");
+        const empty = document.getElementById("emptyState");
+        if (!list || !empty) return;
+        list.innerHTML = "";
+
+        const due = (Array.isArray(meds) ? meds : []).filter(m => medIsScheduledForShift(m, shift));
+        currentMeds = due;
+
+        if (!due.length) {
+            empty.style.display = "block";
+            return;
+        }
+
+        empty.style.display = "none";
+
+        due.forEach((med) => {
+            const li = document.createElement("li");
+            const times = Array.isArray(med.times) && med.times.length ? med.times.join(", ") : (med.time || med.frequency || "--");
+            const status = normalizeStatus(medicationDraftStatus.get(med._id));
+            if (!medicationDraftStatus.has(med._id)) medicationDraftStatus.set(med._id, status);
+            const lastFollowup = lastPrnFollowupByMed.get(String(med._id));
+            const followupText = lastFollowup
+                ? new Date(lastFollowup.ts).toLocaleString()
+                : "None recorded";
+
+            li.innerHTML = `
+                <div class="popup-med-main">
+                    <div class="med-title">${med.name || "Medication"}</div>
+                    <div class="popup-med-meta">${med.dosage || ""} ${med.route ? `- ${med.route}` : ""}</div>
+                    <div class="popup-med-meta">Schedule: ${times}</div>
+                    <div class="popup-med-meta">Last PRN Follow-up: ${followupText}</div>
+                    ${med.instructions ? `<div class="popup-med-meta">Instructions: ${med.instructions}</div>` : ""}
+                </div>
+                <div class="popup-med-actions">
+                    <select class="popup-med-status" data-med-id="${med._id}">
+                        <option value="given" ${status === "given" ? "selected" : ""}>Given</option>
+                        <option value="held" ${status === "held" ? "selected" : ""}>Held</option>
+                        <option value="refused" ${status === "refused" ? "selected" : ""}>Refused</option>
+                        <option value="prn" ${status === "prn" ? "selected" : ""}>PRN</option>
+                    </select>
+                    <button type="button" class="secondary-btn small-btn popup-followup-btn" data-followup-med-id="${med._id}">PRN Follow-up</button>
+                </div>
+            `;
+
+            li.classList.add(`status-${status}`);
+            const select = li.querySelector(".popup-med-status");
+            if (select) {
+                select.addEventListener("change", () => {
+                    const next = normalizeStatus(select.value);
+                    medicationDraftStatus.set(med._id, next);
+                    li.classList.remove("status-given", "status-held", "status-refused", "status-prn");
+                    li.classList.add(`status-${next}`);
+                });
+            }
+
+            const followupButton = li.querySelector("[data-followup-med-id]");
+            if (followupButton) {
+                followupButton.addEventListener("click", () => {
+                    openPrnFollowupModal(med);
+                });
+            }
+
+            list.appendChild(li);
+        });
+    }
+
+    function openPrnFollowupModal(med) {
+        prnFollowupMedication = med;
+        const modal = document.getElementById("prnFollowupModal");
+        const title = document.getElementById("prnFollowupTitle");
+        const notes = document.getElementById("prnFollowupNotes");
+        if (!modal || !title || !notes) return;
+        title.textContent = `PRN Follow-up: ${med.name || "Medication"}`;
+        notes.value = "";
+        modal.style.display = "flex";
+        notes.focus();
+    }
+
+    function closePrnFollowupModal() {
+        const modal = document.getElementById("prnFollowupModal");
+        const notes = document.getElementById("prnFollowupNotes");
+        if (modal) modal.style.display = "none";
+        if (notes) notes.value = "";
+        prnFollowupMedication = null;
+    }
+
+    function savePrnFollowup() {
+        if (!prnFollowupMedication) return;
+
+        const notes = String(document.getElementById("prnFollowupNotes")?.value || "").trim();
+        if (!notes) {
+            alert("Please enter follow-up notes.");
+            return;
+        }
+
+        authFetch(`${API_BASE}/mar`, {
+            method: "POST",
+            body: JSON.stringify({
+                residentId,
+                medicationId: prnFollowupMedication._id,
+                scheduledTime: getScheduledTimeForShift(prnFollowupMedication) || "PRN",
+                status: "prn-followup",
+                notes
+            })
+        })
+            .then(() => {
+                closePrnFollowupModal();
+                alert("PRN follow-up saved.");
+                loadData();
+            })
+            .catch((err) => {
+                alert(err.message || "Unable to save PRN follow-up.");
+            });
+    }
+
+    function openReasonModal(item) {
+        const modal = document.getElementById("reasonModal");
+        const title = document.getElementById("reasonModalTitle");
+        const input = document.getElementById("reasonInput");
+        if (!modal || !title || !input) return;
+        const action = item.status === "prn" ? "given PRN" : "held";
+        title.textContent = `Reason required: ${item.med.name} was ${action}`;
+        input.value = "";
+        modal.style.display = "flex";
+        input.focus();
+    }
+
+    function closeReasonModal() {
+        const modal = document.getElementById("reasonModal");
+        if (modal) modal.style.display = "none";
+    }
+
+    function beginFinalize() {
+        if (!currentMeds.length) {
+            alert("No medications to finalize for this shift.");
+            return;
+        }
+
+        reasonQueue = [];
+        reasonIndex = 0;
+        currentMeds.forEach((med) => {
+            const status = normalizeStatus(medicationDraftStatus.get(med._id));
+            if (status === "held" || status === "prn") {
+                reasonQueue.push({ med, medId: med._id, status, reason: "" });
+            }
+        });
+
+        if (reasonQueue.length) {
+            openReasonModal(reasonQueue[reasonIndex]);
+        } else {
+            savePass();
+        }
+    }
+
+    function savePass() {
+        const requests = currentMeds.map((med) => {
+            const status = normalizeStatus(medicationDraftStatus.get(med._id));
+            const queued = reasonQueue.find((r) => r.medId === med._id);
+            return authFetch(`${API_BASE}/mar`, {
+                method: "POST",
+                body: JSON.stringify({
+                    residentId,
+                    medicationId: med._id,
+                    scheduledTime: getScheduledTimeForShift(med),
+                    status,
+                    reason: queued ? queued.reason : undefined
+                })
+            });
+        });
+
+        Promise.all(requests)
+            .then(() => {
+                alert("Medication pass finalized.");
+                medicationDraftStatus.clear();
+                reasonQueue = [];
+                reasonIndex = 0;
+                loadData();
+            })
+            .catch((err) => {
+                alert(err.message || "Unable to finalize medication pass.");
+            });
+    }
+
+    async function loadData() {
+        if (!residentId) {
+            throw new Error("Missing residentId");
+        }
+
+        const [resident, meds, marEntries] = await Promise.all([
+            authFetch(`${API_BASE}/residents/${residentId}`),
+            authFetch(`${API_BASE}/medications/${residentId}`),
+            authFetch(`${API_BASE}/mar/${residentId}`)
+        ]);
+
+        lastPrnFollowupByMed = buildLastPrnFollowupIndex(marEntries);
+
+        setHeader(resident);
+        renderMeds(meds);
+    }
+
+    const refreshButton = document.getElementById("refreshButton");
+    if (refreshButton) {
+        refreshButton.addEventListener("click", () => {
+            loadData().catch((err) => alert(err.message || "Unable to refresh medications."));
+        });
+    }
+
+    const finalizeButton = document.getElementById("finalizeButton");
+    if (finalizeButton) {
+        finalizeButton.addEventListener("click", beginFinalize);
+    }
+
+    const reasonCancelButton = document.getElementById("reasonCancelButton");
+    if (reasonCancelButton) {
+        reasonCancelButton.addEventListener("click", () => {
+            reasonQueue = [];
+            reasonIndex = 0;
+            closeReasonModal();
+        });
+    }
+
+    const reasonSaveButton = document.getElementById("reasonSaveButton");
+    if (reasonSaveButton) {
+        reasonSaveButton.addEventListener("click", () => {
+            const input = document.getElementById("reasonInput");
+            const value = String(input?.value || "").trim();
+            if (!value) {
+                alert("Please enter a reason.");
+                return;
+            }
+
+            reasonQueue[reasonIndex].reason = value;
+            reasonIndex += 1;
+            if (reasonIndex < reasonQueue.length) {
+                openReasonModal(reasonQueue[reasonIndex]);
+            } else {
+                closeReasonModal();
+                savePass();
+            }
+        });
+    }
+
+    const prnFollowupCancelButton = document.getElementById("prnFollowupCancelButton");
+    if (prnFollowupCancelButton) {
+        prnFollowupCancelButton.addEventListener("click", closePrnFollowupModal);
+    }
+
+    const prnFollowupSaveButton = document.getElementById("prnFollowupSaveButton");
+    if (prnFollowupSaveButton) {
+        prnFollowupSaveButton.addEventListener("click", savePrnFollowup);
+    }
+
+    document.querySelectorAll("[data-shift]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            shift = btn.getAttribute("data-shift") || "AM";
+            const next = new URL(window.location.href);
+            next.searchParams.set("shift", shift);
+            window.history.replaceState({}, "", next.toString());
+            loadData().catch((err) => alert(err.message || "Unable to switch shift."));
+        });
+    });
+
+    if (!getToken()) {
+        window.location.href = "login.html";
+        return;
+    }
+
+    loadData().catch((err) => {
+        alert(err.message || "Unable to load resident medications.");
+    });
+})();
+</script>
+</body>
+</html>

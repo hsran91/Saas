@@ -1,8 +1,12 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 const path = require("path");
 const bcrypt = require("bcryptjs");
+require("dotenv").config();
+
 const User = require("./models/User");
 const Resident = require("./models/Resident");
 
@@ -14,15 +18,86 @@ const marRoutes = require("./routes/marRoutes");
 const invoiceRoutes = require("./routes/invoiceRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const auth = require("./middleware/auth");
+const { notFoundHandler, errorHandler } = require("./middleware/errorHandler");
 
 const app = express();
+
+function requireEnv(name) {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return value;
+}
+
+const MONGODB_URI = requireEnv("MONGODB_URI");
+requireEnv("JWT_SECRET");
+
+const IS_DEV = process.env.NODE_ENV === "development";
+const SHOULD_SEED_ON_BOOT = process.env.SEED_ON_BOOT === "true";
+const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || "1mb";
+const URLENCODED_BODY_LIMIT = process.env.URLENCODED_BODY_LIMIT || "1mb";
+const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000);
+const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX || 300);
+const AUTH_RATE_LIMIT_WINDOW_MS = Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000);
+const AUTH_RATE_LIMIT_MAX = Number(process.env.AUTH_RATE_LIMIT_MAX || 100);
+const TRUST_PROXY = process.env.TRUST_PROXY === "true";
+const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+if (!IS_DEV && CORS_ALLOWED_ORIGINS.length === 0) {
+  throw new Error("Missing required environment variable: CORS_ALLOWED_ORIGINS");
+}
+
+const corsOptions = {
+  origin(origin, callback) {
+    // Allow requests from tools or same-origin requests with no origin header.
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    if (CORS_ALLOWED_ORIGINS.length === 0 && IS_DEV) {
+      return callback(null, true);
+    }
+
+    if (CORS_ALLOWED_ORIGINS.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error("CORS origin not allowed"));
+  },
+  credentials: true
+};
+
+const globalApiLimiter = rateLimit({
+  windowMs: RATE_LIMIT_WINDOW_MS,
+  max: RATE_LIMIT_MAX,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests. Please try again later." }
+});
+
+const authRouteLimiter = rateLimit({
+  windowMs: AUTH_RATE_LIMIT_WINDOW_MS,
+  max: AUTH_RATE_LIMIT_MAX,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many authentication requests. Please try again later." }
+});
+
+if (TRUST_PROXY) {
+  app.set("trust proxy", 1);
+}
 
 // =========================
 // MIDDLEWARE
 // =========================
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(helmet());
+app.use(cors(corsOptions));
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: URLENCODED_BODY_LIMIT }));
 
 // Serve frontend assets and uploaded files
 app.use(express.static(path.join(__dirname, "..", "frontend")));
@@ -35,7 +110,8 @@ app.get("/", (req, res) => {
 // =========================
 // ROUTES
 // =========================
-app.use("/auth", authRoutes);
+app.use("/auth", authRouteLimiter, authRoutes);
+app.use(globalApiLimiter);
 app.use(auth);
 app.use("/residents", residentRoutes);
 app.use("/medications", medicationRoutes);
@@ -43,80 +119,98 @@ app.use("/mar", marRoutes);
 app.use("/invoices", invoiceRoutes);
 app.use("/dashboard", dashboardRoutes);
 app.use("/alerts", alertRoutes);
-// medpass feature removed; previously registered at /medpass
+app.use(notFoundHandler);
+app.use(errorHandler);
 
-// =========================
-// DATABASE CONNECTION
-// =========================
-const PORT = 5000;
+async function seedDevelopmentUsers() {
+  console.warn("SEED_ON_BOOT is enabled. Running development seed logic.");
 
-mongoose
-  .connect("mongodb://127.0.0.1:27017/emar")
-  .then(async () => {
-    console.log("MongoDB connected");
+  const adminEmail = "hsran91@gmail.com";
+  const adminPassword = "hman123";
+  const adminUsername = "admhasen";
+  const existingAdmin = await User.findOne({ email: adminEmail });
 
-    const adminEmail = "hsran91@gmail.com";
-    const existingAdmin = await User.findOne({ email: adminEmail });
-    const adminPassword = "hman123";
-    const adminUsername = "admhasen";
+  if (!existingAdmin) {
+    const hashed = await bcrypt.hash(adminPassword, 10);
+    await User.create({
+      name: "hasen",
+      username: adminUsername,
+      email: adminEmail,
+      password: hashed,
+      role: "admin"
+    });
+    console.log("Seeded admin user: admhasen / hman123");
+  } else {
+    const updates = {};
+    if (!existingAdmin.username || existingAdmin.username !== adminUsername) updates.username = adminUsername;
+    if (existingAdmin.role !== "admin") updates.role = "admin";
+    if (Object.keys(updates).length > 0) {
+      await User.findByIdAndUpdate(existingAdmin._id, updates);
+      console.log("Updated existing admin username/role to admhasen/admin");
+    }
 
-    if (!existingAdmin) {
+    const passwordMatches = await bcrypt.compare(adminPassword, existingAdmin.password);
+    if (!passwordMatches) {
       const hashed = await bcrypt.hash(adminPassword, 10);
-      await User.create({
-        name: "hasen",
-        username: adminUsername,
-        email: adminEmail,
-        password: hashed,
-        role: "admin"
-      });
-      console.log("Seeded admin user: admhasen / hman123");
-    } else {
-      const updates = {};
-      if (!existingAdmin.username || existingAdmin.username !== adminUsername) {
-        updates.username = adminUsername;
-      }
-      if (existingAdmin.role !== "admin") {
-        updates.role = "admin";
-      }
-      if (Object.keys(updates).length > 0) {
-        await User.findByIdAndUpdate(existingAdmin._id, updates);
-        console.log("Updated existing admin username/role to admhasen/admin");
-      }
-
-      const passwordMatches = await bcrypt.compare(adminPassword, existingAdmin.password);
-      if (!passwordMatches) {
-        const hashed = await bcrypt.hash(adminPassword, 10);
-        await User.findByIdAndUpdate(existingAdmin._id, { password: hashed });
-        console.log("Updated existing admin password to hman123");
-      }
+      await User.findByIdAndUpdate(existingAdmin._id, { password: hashed });
+      console.log("Updated existing admin password to hman123");
     }
+  }
 
-    const medtechEmail = "medtech@example.com";
-    const medtechUsername = "medtech1";
-    const medtechPassword = "med123";
-    const existingMedtech = await User.findOne({ email: medtechEmail });
+  const medtechEmail = "medtech@example.com";
+  const medtechUsername = "medtech1";
+  const medtechPassword = "med123";
+  const existingMedtech = await User.findOne({ email: medtechEmail });
 
-    if (!existingMedtech) {
-      const hashed = await bcrypt.hash(medtechPassword, 10);
-      await User.create({
-        name: "Med Tech",
-        username: medtechUsername,
-        email: medtechEmail,
-        password: hashed,
-        role: "medtech"
+  if (!existingMedtech) {
+    const hashed = await bcrypt.hash(medtechPassword, 10);
+    await User.create({
+      name: "Med Tech",
+      username: medtechUsername,
+      email: medtechEmail,
+      password: hashed,
+      role: "medtech"
+    });
+    console.log("Seeded medtech user: medtech1 / med123");
+  }
+
+  const poaEmail = "poa@example.com";
+  const poaUsername = "respoa";
+  const poaPassword = "poa123";
+  const residentName = "Test Resident";
+  const residentRoom = "101";
+  const existingPoa = await User.findOne({ email: poaEmail });
+
+  let poaResidentId;
+  if (!existingPoa) {
+    let resident = await Resident.findOne({ firstName: residentName, roomNumber: residentRoom });
+    if (!resident) {
+      resident = await Resident.create({
+        firstName: residentName,
+        lastName: "Billing",
+        roomNumber: residentRoom
       });
-      console.log("Seeded medtech user: medtech1 / med123");
     }
-
-    const poaEmail = "poa@example.com";
-    const poaUsername = "respoa";
-    const poaPassword = "poa123";
-    const residentName = "Test Resident";
-    const residentRoom = "101";
-    const existingPoa = await User.findOne({ email: poaEmail });
-
-    let poaResidentId;
-    if (!existingPoa) {
+    poaResidentId = resident._id;
+    const hashed = await bcrypt.hash(poaPassword, 10);
+    await User.create({
+      name: "POA User",
+      username: poaUsername,
+      email: poaEmail,
+      password: hashed,
+      role: "poa",
+      residentId: poaResidentId
+    });
+    console.log("Seeded POA user: respoa / poa123");
+  } else {
+    poaResidentId = existingPoa.residentId;
+    const passwordMatches = await bcrypt.compare(poaPassword, existingPoa.password);
+    if (!passwordMatches) {
+      const hashed = await bcrypt.hash(poaPassword, 10);
+      await User.findByIdAndUpdate(existingPoa._id, { password: hashed });
+      console.log("Updated existing POA password to poa123");
+    }
+    if (!existingPoa.residentId) {
       let resident = await Resident.findOne({ firstName: residentName, roomNumber: residentRoom });
       if (!resident) {
         resident = await Resident.create({
@@ -126,43 +220,31 @@ mongoose
         });
       }
       poaResidentId = resident._id;
-      const hashed = await bcrypt.hash(poaPassword, 10);
-      await User.create({
-        name: "POA User",
-        username: poaUsername,
-        email: poaEmail,
-        password: hashed,
-        role: "poa",
-        residentId: poaResidentId
-      });
-      console.log("Seeded POA user: respoa / poa123");
+      await User.findByIdAndUpdate(existingPoa._id, { residentId: poaResidentId });
+      console.log("Updated existing POA user resident link");
+    }
+  }
+}
+
+// =========================
+// DATABASE CONNECTION
+// =========================
+const PORT = Number(process.env.PORT) || 5000;
+
+mongoose
+  .connect(MONGODB_URI)
+  .then(async () => {
+    console.log("MongoDB connected");
+
+    if (IS_DEV && SHOULD_SEED_ON_BOOT) {
+      await seedDevelopmentUsers();
     } else {
-      poaResidentId = existingPoa.residentId;
-      const passwordMatches = await bcrypt.compare(poaPassword, existingPoa.password);
-      if (!passwordMatches) {
-        const hashed = await bcrypt.hash(poaPassword, 10);
-        await User.findByIdAndUpdate(existingPoa._id, { password: hashed });
-        console.log("Updated existing POA password to poa123");
-      }
-      if (!existingPoa.residentId) {
-        let resident = await Resident.findOne({ firstName: residentName, roomNumber: residentRoom });
-        if (!resident) {
-          resident = await Resident.create({
-            firstName: residentName,
-            lastName: "Billing",
-            roomNumber: residentRoom
-          });
-        }
-        poaResidentId = resident._id;
-        await User.findByIdAndUpdate(existingPoa._id, { residentId: poaResidentId });
-        console.log("Updated existing POA user resident link");
-      }
+      console.log("Startup seed skipped. Set NODE_ENV=development and SEED_ON_BOOT=true to enable.");
     }
 
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
   })
-  .catch(err => {
+  .catch((err) => {
     console.error("MongoDB connection error:", err);
     process.exit(1);
   });
-

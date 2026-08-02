@@ -1,5 +1,17 @@
 const jwt = require("jsonwebtoken");
-const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
+const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_ISSUER = process.env.JWT_ISSUER;
+const JWT_AUDIENCE = process.env.JWT_AUDIENCE;
+
+if (!JWT_SECRET) {
+  throw new Error("Missing required environment variable: JWT_SECRET");
+}
+if (!JWT_ISSUER) {
+  throw new Error("Missing required environment variable: JWT_ISSUER");
+}
+if (!JWT_AUDIENCE) {
+  throw new Error("Missing required environment variable: JWT_AUDIENCE");
+}
 
 function auth(req, res, next) {
   const token = req.headers.authorization?.split(" ")[1];
@@ -7,7 +19,10 @@ function auth(req, res, next) {
   if (!token) return res.status(401).json({ error: "No token provided" });
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET, {
+      issuer: JWT_ISSUER,
+      audience: JWT_AUDIENCE
+    });
     req.user = decoded;
     next();
   } catch (err) {
@@ -38,5 +53,7 @@ auth.requirePoaResidentMatch = function (paramName = "residentId") {
 };
 
 auth.JWT_SECRET = JWT_SECRET;
+auth.JWT_ISSUER = JWT_ISSUER;
+auth.JWT_AUDIENCE = JWT_AUDIENCE;
 
 module.exports = auth;

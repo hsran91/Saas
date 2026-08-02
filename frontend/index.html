@@ -24,7 +24,9 @@
             <button onclick="showPage('medicationsPage')" class="nav-item" id="nav-meds">
                 Medications
             </button>
-            <!-- Med Pass feature removed -->
+            <button onclick="showPage('medPassPage')" class="nav-item" id="nav-medpass">
+                Med Pass
+            </button>
             <button onclick="showPage('marPage')" class="nav-item" id="nav-mar">
                 MAR Log
             </button>
@@ -81,7 +83,65 @@
             </div>
         </section>
 
-        <!-- Med Pass UI removed -->
+        <section id="medPassPage" class="page" style="display:none;">
+            <h2 class="page-title">Med Pass</h2>
+            <div class="card medpass-shell">
+                <div class="medpass-shift-banner" id="medPassShiftBanner">
+                    <div>
+                        <p class="medpass-shift-title" id="medPassShiftTitle">Current Shift: AM (06:00 - 14:00)</p>
+                        <p class="muted" id="medPassShiftDueResidents">Residents with meds due: 0</p>
+                    </div>
+                </div>
+                <div class="section-header-row medpass-header">
+                    <div class="medpass-filters">
+                        <div class="form-group">
+                            <label for="medPassResidentSelect">Resident</label>
+                            <select id="medPassResidentSelect" onchange="onMedPassResidentChange()">
+                                <option value="">Select a resident</option>
+                            </select>
+                        </div>
+                        <label class="medpass-toggle" for="medPassDueOnlyToggle">
+                            <input type="checkbox" id="medPassDueOnlyToggle" onchange="toggleMedPassDueOnly()">
+                            <span>Due Only</span>
+                        </label>
+                        <div class="medpass-shift-controls" role="group" aria-label="Shift selector">
+                            <button type="button" id="medpassShiftAM" class="secondary-btn" onclick="setMedPassShift('AM')">AM</button>
+                            <button type="button" id="medpassShiftPM" class="secondary-btn" onclick="setMedPassShift('PM')">PM</button>
+                            <button type="button" id="medpassShiftNOC" class="secondary-btn" onclick="setMedPassShift('NOC')">NOC</button>
+                        </div>
+                    </div>
+                    <div class="section-header-row-actions">
+                        <button class="secondary-btn" id="medPassFinalizeButton" onclick="finalizeMedPassShift()">Finalize Shift Pass</button>
+                        <button class="primary-btn" onclick="loadMedPassPage(true)">Refresh</button>
+                    </div>
+                </div>
+                <p id="medPassSummary" class="muted">Select a resident and shift to begin med pass.</p>
+                <div id="medPassResidentCards" class="resident-grid medpass-resident-grid" aria-label="Med pass resident cards"></div>
+                <div class="medpass-census" aria-label="Shift census panel">
+                    <div class="medpass-census-card due">
+                        <span class="medpass-census-label">Due</span>
+                        <strong id="medPassCensusDue">0</strong>
+                    </div>
+                    <div class="medpass-census-card completed">
+                        <span class="medpass-census-label">Completed</span>
+                        <strong id="medPassCensusCompleted">0</strong>
+                    </div>
+                    <div class="medpass-census-card held">
+                        <span class="medpass-census-label">Held</span>
+                        <strong id="medPassCensusHeld">0</strong>
+                    </div>
+                    <div class="medpass-census-card refused">
+                        <span class="medpass-census-label">Refused</span>
+                        <strong id="medPassCensusRefused">0</strong>
+                    </div>
+                    <div class="medpass-census-card prn">
+                        <span class="medpass-census-label">PRN</span>
+                        <strong id="medPassCensusPrn">0</strong>
+                    </div>
+                </div>
+                <ul id="medpass-med-list" class="med-list"></ul>
+            </div>
+        </section>
 
         <section id="medicationsPage" class="page" style="display:none;">
             <h2 class="page-title">Medications</h2>
@@ -237,7 +297,7 @@
             <!-- SIDE PANEL: Add Medication -->
             <aside id="addMedPanel" class="side-panel" style="display:none;">
                 <div class="side-panel-header">
-                    <h3>Add Medication</h3>
+                    <h3 id="addMedPanelTitle">Add Medication</h3>
                     <button class="icon-btn" onclick="closeAddMedPanel()">✕</button>
                 </div>
                 <form id="addMedForm" class="form-grid">
@@ -276,7 +336,7 @@
                         <textarea id="medInstr" rows="2"></textarea>
                     </div>
                     <div class="form-actions">
-                        <button type="submit" class="primary-btn">Save Medication</button>
+                        <button type="submit" id="addMedSubmitButton" class="primary-btn">Save Medication</button>
                     </div>
                 </form>
             </aside>
@@ -456,6 +516,26 @@
             <div class="form-actions full-width">
                 <button type="button" class="secondary-btn" onclick="cancelHeldReasonPrompt()">Cancel</button>
                 <button type="submit" class="primary-btn">Save Reason</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="prnFollowupModal" class="modal-backdrop" style="display:none;">
+    <div class="modal">
+        <div class="modal-header">
+            <h2>PRN Follow-up</h2>
+            <button class="icon-btn" onclick="closePrnFollowupModal()">✕</button>
+        </div>
+        <form id="prnFollowupForm" class="form-grid">
+            <div class="form-group full-width">
+                <p id="prnFollowupPrompt" class="muted">Document PRN follow-up notes.</p>
+                <label for="prnFollowupNotes">Follow-up Notes</label>
+                <textarea id="prnFollowupNotes" rows="4" required></textarea>
+            </div>
+            <div class="form-actions full-width">
+                <button type="button" class="secondary-btn" onclick="closePrnFollowupModal()">Cancel</button>
+                <button type="submit" class="primary-btn">Save Follow-up</button>
             </div>
         </form>
     </div>

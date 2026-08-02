@@ -1,12 +1,41 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const rateLimit = require("express-rate-limit");
 const auth = require("../middleware/auth");
 const User = require("../models/User");
 const Resident = require("../models/Resident");
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
+const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_ISSUER = process.env.JWT_ISSUER;
+const JWT_AUDIENCE = process.env.JWT_AUDIENCE;
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
+
+if (!JWT_SECRET) {
+  throw new Error("Missing required environment variable: JWT_SECRET");
+}
+if (!JWT_ISSUER) {
+  throw new Error("Missing required environment variable: JWT_ISSUER");
+}
+if (!JWT_AUDIENCE) {
+  throw new Error("Missing required environment variable: JWT_AUDIENCE");
+}
+
+const LOGIN_RATE_LIMIT_WINDOW_MS = Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS || 10 * 60 * 1000);
+const LOGIN_RATE_LIMIT_MAX = Number(process.env.LOGIN_RATE_LIMIT_MAX || 10);
+const AUTH_FAILURE_MESSAGE = "Invalid credentials";
+// Constant bcrypt hash used when user is not found to reduce timing differences.
+const DUMMY_PASSWORD_HASH = "$2a$10$MPCm4YfB4BvDl3j5Qk1Vce8ubtL6fMVS03/0Ab8f2kn6FQJ7s6v8S";
+
+const loginLimiter = rateLimit({
+  windowMs: LOGIN_RATE_LIMIT_WINDOW_MS,
+  max: LOGIN_RATE_LIMIT_MAX,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many login attempts. Please try again later." },
+  skipSuccessfulRequests: true
+});
 
 // REGISTER STAFF
 router.post("/register", auth, auth.requireRole("admin"), async (req, res) => {
@@ -65,7 +94,7 @@ router.post("/register", auth, auth.requireRole("admin"), async (req, res) => {
 });
 
 // LOGIN STAFF
-router.post("/login", async (req, res) => {
+router.post("/login", loginLimiter, async (req, res) => {
   try {
     const { username, email, password } = req.body;
     const loginKey = username || email;
@@ -84,15 +113,22 @@ router.post("/login", async (req, res) => {
       user = await User.findOne({ email: loginKey });
     }
 
-    if (!user) return res.status(400).json({ error: "Invalid credentials" });
+    if (!user) {
+      await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
+      return res.status(401).json({ error: AUTH_FAILURE_MESSAGE });
+    }
 
     const match = await bcrypt.compare(password, user.password);
-    if (!match) return res.status(400).json({ error: "Invalid credentials" });
+    if (!match) return res.status(401).json({ error: AUTH_FAILURE_MESSAGE });
 
     const token = jwt.sign(
       { id: user._id, role: user.role, name: user.name, residentId: user.residentId },
       JWT_SECRET,
-      { expiresIn: "7d" }
+      {
+        expiresIn: JWT_EXPIRES_IN,
+        issuer: JWT_ISSUER,
+        audience: JWT_AUDIENCE
+      }
     );
 
     res.json({ message: "Login successful", token, user });
