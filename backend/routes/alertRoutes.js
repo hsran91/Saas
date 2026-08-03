@@ -3,6 +3,7 @@ const router = express.Router();
 const AlertChart = require("../models/AlertChart");
 const Resident = require("../models/Resident");
 const auth = require("../middleware/auth");
+const { getPagination, setPaginationHeaders } = require("../utils/pagination");
 
 // Create an alert chart entry
 router.post("/", auth.requireRole("admin", "medtech", "rn"), async (req, res) => {
@@ -36,6 +37,27 @@ router.post("/", auth.requireRole("admin", "medtech", "rn"), async (req, res) =>
   }
 });
 
+// Get recent alerts across all residents (last N hours)
+router.get("/recent/all", auth.requireRole("admin", "medtech", "rn"), async (req, res) => {
+  try {
+    const tenantId = req.tenantId;
+    const hours = Number(req.query.hours) || 72;
+    const since = new Date(Date.now() - hours * 60 * 60 * 1000);
+    const pagination = getPagination(req.query, { defaultLimit: 100, maxLimit: 200 });
+
+    const alerts = await AlertChart.find({ tenantId, createdAt: { $gte: since } })
+      .sort({ createdAt: -1 })
+      .skip(pagination.skip)
+      .limit(pagination.limit)
+      .populate("residentId", "firstName lastName roomNumber");
+
+    setPaginationHeaders(res, pagination, alerts.length);
+    res.json(alerts);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Get alerts for a single resident (optionally limited to last N hours via ?hours=72)
 router.get("/:residentId", auth.requireRole("admin", "medtech", "rn", "poa"), async (req, res) => {
   try {
@@ -47,28 +69,14 @@ router.get("/:residentId", auth.requireRole("admin", "medtech", "rn", "poa"), as
     const { residentId } = req.params;
     const hours = Number(req.query.hours) || 72;
     const since = new Date(Date.now() - hours * 60 * 60 * 1000);
+    const pagination = getPagination(req.query, { defaultLimit: 50, maxLimit: 200 });
 
     const alerts = await AlertChart.find({ tenantId, residentId, createdAt: { $gte: since } })
-      .sort({ createdAt: -1 });
-
-    res.json(alerts);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Get recent alerts across all residents (last N hours)
-router.get("/recent/all", auth.requireRole("admin", "medtech", "rn"), async (req, res) => {
-  try {
-    const tenantId = req.tenantId;
-    const hours = Number(req.query.hours) || 72;
-    const since = new Date(Date.now() - hours * 60 * 60 * 1000);
-
-    const alerts = await AlertChart.find({ tenantId, createdAt: { $gte: since } })
       .sort({ createdAt: -1 })
-      .limit(200)
-      .populate("residentId", "firstName lastName roomNumber");
+      .skip(pagination.skip)
+      .limit(pagination.limit);
 
+    setPaginationHeaders(res, pagination, alerts.length);
     res.json(alerts);
   } catch (err) {
     res.status(500).json({ error: err.message });

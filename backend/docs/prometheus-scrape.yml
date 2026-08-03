@@ -1,0 +1,16 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: emar-backend
+    metrics_path: /metrics
+    scheme: https
+    static_configs:
+      - targets:
+          - app.example.com
+    authorization:
+      type: Bearer
+      credentials: replace_with_metrics_token
+    headers:
+      x-metrics-token: replace_with_metrics_token

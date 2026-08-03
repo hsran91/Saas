@@ -3,8 +3,11 @@ const express = require("express");
 const mongoose = require("mongoose");
 const Resident = require("../models/Resident");
 const { getUniqueResidentCode } = require("../utils/residentCode");
+const { getPagination, setPaginationHeaders } = require("../utils/pagination");
 const upload = require("../middleware/upload"); // <-- Multer middleware
 const auth = require("../middleware/auth");
+const { saveUploadedFile } = require("../services/uploadStorage");
+const { logRequest, serializeError } = require("../utils/logger");
 const router = express.Router();
 
 const RESIDENT_ALLOWED_FIELDS = new Set([
@@ -104,9 +107,8 @@ function validateAndNormalizeResidentPayload(body) {
 // ADD RESIDENT (with photo)
 // =========================
 router.post("/", auth.requireRole("admin", "medtech", "rn"), upload.single("photo"), async (req, res) => {
-  console.log("POST /residents received", {
-    body: req.body,
-    file: req.file ? { originalname: req.file.originalname, filename: req.file.filename } : null,
+  logRequest("info", req, "Resident create requested", {
+    hasPhoto: Boolean(req.file),
     mongooseState: mongoose.connection.readyState
   });
 
@@ -122,14 +124,14 @@ router.post("/", auth.requireRole("admin", "medtech", "rn"), upload.single("phot
     const resident = await Resident.create({
       tenantId,
       ...payload,
-      photoUrl: req.file ? `/uploads/${req.file.filename}` : null
+      photoUrl: req.file ? await saveUploadedFile(req.file, { prefix: "residents" }) : null
     });
 
     const out = resident.toObject();
     if (req.user.role !== "admin") delete out.residentCode;
     res.json(out);
   } catch (err) {
-    console.error("Error creating resident:", err);
+    logRequest("error", req, "Resident create failed", { error: serializeError(err) });
     res.status(400).json({ error: err.message });
   }
 });
@@ -151,7 +153,11 @@ router.get("/", auth.requireRole("admin", "medtech", "rn", "poa"), async (req, r
       return res.json(out ? [out] : []);
     }
 
-    const residents = await Resident.find({ tenantId });
+    const pagination = getPagination(req.query, { defaultLimit: 50, maxLimit: 200 });
+    const residents = await Resident.find({ tenantId })
+      .sort({ createdAt: -1 })
+      .skip(pagination.skip)
+      .limit(pagination.limit);
     const updatedResidents = await Promise.all(residents.map(async r => {
       if (!r.residentCode) {
         r.residentCode = await getUniqueResidentCode(Resident, tenantId);
@@ -161,6 +167,7 @@ router.get("/", auth.requireRole("admin", "medtech", "rn", "poa"), async (req, r
       if (req.user.role !== "admin") delete obj.residentCode;
       return obj;
     }));
+    setPaginationHeaders(res, pagination, updatedResidents.length);
     res.json(updatedResidents);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -205,3 +212,7 @@ router.delete("/:id", auth.requireRole("admin", "medtech", "rn"), async (req, re
 });
 
 module.exports = router;
+module.exports._test = {
+  validateAndNormalizeResidentPayload,
+  getPagination
+};

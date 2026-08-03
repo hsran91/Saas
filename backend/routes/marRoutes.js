@@ -5,6 +5,10 @@ const MarEntry = require("../models/MarsEntry");
 const Medication = require("../models/Medication");
 const User = require("../models/User");
 const auth = require("../middleware/auth");
+const { getPagination, setPaginationHeaders } = require("../utils/pagination");
+const { incrementMarWriteFailure } = require("../services/metrics");
+const { recordAuditEvent } = require("../services/auditLog");
+const { runWriteTransaction } = require("../services/transactions");
 
 const ALLOWED_MAR_WRITE_FIELDS = new Set([
   "residentId",
@@ -92,10 +96,14 @@ router.get("/:residentId", auth.requireRole("admin", "medtech", "rn", "poa"), as
       return res.status(403).json({ error: "Access denied" });
     }
 
+    const pagination = getPagination(req.query, { defaultLimit: 50, maxLimit: 200 });
     const entries = await MarEntry.find({ tenantId, residentId: req.params.residentId })
       .sort({ actualTime: -1 })
+      .skip(pagination.skip)
+      .limit(pagination.limit)
       .populate("medicationId", "name");
 
+    setPaginationHeaders(res, pagination, entries.length);
     res.json(entries);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -105,14 +113,16 @@ router.get("/:residentId", auth.requireRole("admin", "medtech", "rn", "poa"), as
 // Get recent MAR entries across all residents (optional ?limit=100)
 router.get("/", auth.requireRole("admin", "medtech", "rn"), async (req, res) => {
   try {
-    const limit = Math.min(500, Number(req.query.limit) || 200);
+    const pagination = getPagination(req.query, { defaultLimit: 100, maxLimit: 500 });
 
     const entries = await MarEntry.find({ tenantId: req.tenantId })
       .sort({ actualTime: -1 })
-      .limit(limit)
+      .skip(pagination.skip)
+      .limit(pagination.limit)
       .populate("medicationId", "name")
       .populate({ path: "residentId", select: "firstName lastName roomNumber" });
 
+    setPaginationHeaders(res, pagination, entries.length);
     res.json(entries);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -121,73 +131,107 @@ router.get("/", auth.requireRole("admin", "medtech", "rn"), async (req, res) => 
 
 router.post("/", auth.requireRole("admin", "medtech", "rn"), async (req, res) => {
   try {
-    const tenantId = req.tenantId;
-    const payload = validateAndNormalizeMarPayload(req.body);
-    const {
-      residentId,
-      medicationId,
-      scheduledTime,
-      status: normalizedStatus,
-      notes,
-      reason
-    } = payload;
+    const entry = await runWriteTransaction(async (session) => {
+      const tenantId = req.tenantId;
+      const payload = validateAndNormalizeMarPayload(req.body);
+      const {
+        residentId,
+        medicationId,
+        scheduledTime,
+        status: normalizedStatus,
+        notes,
+        reason
+      } = payload;
 
-    const medication = await Medication.findOne({ _id: medicationId, tenantId }).lean();
-    if (!medication) {
-      return res.status(404).json({ error: "Medication not found" });
-    }
+      const medicationQuery = Medication.findOne({ _id: medicationId, tenantId });
+      if (session) medicationQuery.session(session);
+      const medication = await medicationQuery.lean();
+      if (!medication) {
+        incrementMarWriteFailure("medication_not_found", tenantId);
+        return res.status(404).json({ error: "Medication not found" });
+      }
 
-    if (String(medication.residentId) !== String(residentId)) {
-      return res.status(400).json({ error: "Medication does not belong to resident" });
-    }
+      if (String(medication.residentId) !== String(residentId)) {
+        incrementMarWriteFailure("resident_mismatch", tenantId);
+        return res.status(400).json({ error: "Medication does not belong to resident" });
+      }
 
-    if (normalizedStatus !== "prn-followup") {
-      const now = new Date();
-      const dayStart = new Date(now);
-      dayStart.setHours(0, 0, 0, 0);
-      const dayEnd = new Date(now);
-      dayEnd.setHours(23, 59, 59, 999);
+      if (normalizedStatus !== "prn-followup") {
+        const now = new Date();
+        const dayStart = new Date(now);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(now);
+        dayEnd.setHours(23, 59, 59, 999);
 
-      const existing = await MarEntry.findOne({
+        const existingQuery = MarEntry.findOne({
+          tenantId,
+          residentId,
+          medicationId,
+          scheduledTime,
+          status: { $ne: "prn-followup" },
+          actualTime: { $gte: dayStart, $lte: dayEnd }
+        });
+        if (session) existingQuery.session(session);
+        const existing = await existingQuery.lean();
+
+        if (existing) {
+          incrementMarWriteFailure("duplicate_pass", tenantId);
+          return res.status(409).json({ error: "This medication pass has already been charted for today." });
+        }
+      }
+
+      let resolvedStaffName = req.user.name || "Staff";
+      let resolvedStaffId = req.user.id;
+      if (req.user.id) {
+        const userQuery = User.findOne({ _id: req.user.id, tenantId }).select("name");
+        if (session) userQuery.session(session);
+        const dbUser = await userQuery.lean();
+        if (dbUser?.name) {
+          resolvedStaffName = dbUser.name;
+        }
+        resolvedStaffId = req.user.id;
+      }
+
+      const entry = new MarEntry({
         tenantId,
         residentId,
         medicationId,
         scheduledTime,
-        status: { $ne: "prn-followup" },
-        actualTime: { $gte: dayStart, $lte: dayEnd }
-      }).lean();
+        status: normalizedStatus,
+        staffId: resolvedStaffId,
+        staffName: resolvedStaffName,
+        notes,
+        reason
+      });
 
-      if (existing) {
-        return res.status(409).json({ error: "This medication pass has already been charted for today." });
-      }
-    }
+      await entry.save(session ? { session } : undefined);
+      await recordAuditEvent({
+        req,
+        tenantId,
+        action: "mar.write",
+        entityType: "MarEntry",
+        entityId: entry._id,
+        residentId: entry.residentId,
+        medicationId: entry.medicationId,
+        details: {
+          scheduledTime: entry.scheduledTime,
+          status: entry.status,
+          staffId: entry.staffId,
+          staffName: entry.staffName,
+          notes: entry.notes,
+          reason: entry.reason,
+          actualTime: entry.actualTime
+        },
+        session
+      });
 
-    let resolvedStaffName = req.user.name || "Staff";
-    let resolvedStaffId = req.user.id;
-    if (req.user.id) {
-      const dbUser = await User.findOne({ _id: req.user.id, tenantId }).select("name").lean();
-      if (dbUser?.name) {
-        resolvedStaffName = dbUser.name;
-      }
-      resolvedStaffId = req.user.id;
-    }
-
-    const entry = new MarEntry({
-      tenantId,
-      residentId,
-      medicationId,
-      scheduledTime,
-      status: normalizedStatus,
-      staffId: resolvedStaffId,
-      staffName: resolvedStaffName,
-      notes,
-      reason
+      return entry;
     });
-
-    await entry.save();
-
-    res.json(entry);
+    if (!res.headersSent) {
+      res.json(entry);
+    }
   } catch (err) {
+    incrementMarWriteFailure("exception", req.tenantId);
     res.status(400).json({ error: err.message });
   }
 });

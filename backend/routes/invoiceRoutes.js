@@ -4,6 +4,8 @@ const router = express.Router();
 const Invoice = require("../models/Invoice");
 const Resident = require("../models/Resident");
 const auth = require("../middleware/auth");
+const { getPagination, setPaginationHeaders } = require("../utils/pagination");
+const { logRequest, serializeError } = require("../utils/logger");
 
 const ALLOWED_INVOICE_CREATE_FIELDS = new Set([
   "residentId",
@@ -143,7 +145,7 @@ router.post("/", auth.requireRole("admin", "poa"), async (req, res) => {
     await invoice.save();
     res.json(invoice);
   } catch (err) {
-    console.error("Error creating invoice:", err);
+    logRequest("error", req, "Invoice create failed", { error: serializeError(err) });
     res.status(400).json({ error: err.message });
   }
 });
@@ -151,10 +153,16 @@ router.post("/", auth.requireRole("admin", "poa"), async (req, res) => {
 // Get all invoices
 router.get("/", auth.requireRole("admin"), async (req, res) => {
   try {
-    const invoices = await Invoice.find({ tenantId: req.tenantId }).sort({ createdAt: -1 }).populate({
-      path: "residentId",
-      select: "firstName lastName roomNumber",
-    });
+    const pagination = getPagination(req.query, { defaultLimit: 50, maxLimit: 200 });
+    const invoices = await Invoice.find({ tenantId: req.tenantId })
+      .sort({ createdAt: -1 })
+      .skip(pagination.skip)
+      .limit(pagination.limit)
+      .populate({
+        path: "residentId",
+        select: "firstName lastName roomNumber",
+      });
+    setPaginationHeaders(res, pagination, invoices.length);
     res.json(invoices);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -164,9 +172,13 @@ router.get("/", auth.requireRole("admin"), async (req, res) => {
 // Get invoices for a resident
 router.get("/:residentId", auth.requireRole("admin", "poa"), auth.requirePoaResidentMatch("residentId"), async (req, res) => {
   try {
+    const pagination = getPagination(req.query, { defaultLimit: 50, maxLimit: 200 });
     const invoices = await Invoice.find({ tenantId: req.tenantId, residentId: req.params.residentId })
       .sort({ createdAt: -1 })
+      .skip(pagination.skip)
+      .limit(pagination.limit)
       .populate({ path: "residentId", select: "firstName lastName roomNumber" });
+    setPaginationHeaders(res, pagination, invoices.length);
     res.json(invoices);
   } catch (err) {
     res.status(400).json({ error: err.message });

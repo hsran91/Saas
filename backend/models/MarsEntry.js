@@ -63,8 +63,10 @@ const MarEntrySchema = new mongoose.Schema({
 
 }, { timestamps: true });
 
+MarEntrySchema.index({ tenantId: 1, createdAt: -1 });
 MarEntrySchema.index({ tenantId: 1, residentId: 1, actualTime: -1 });
 MarEntrySchema.index({ tenantId: 1, medicationId: 1, actualTime: -1 });
+MarEntrySchema.index({ tenantId: 1, scheduledTime: 1, status: 1, actualTime: -1 });
 MarEntrySchema.index({ tenantId: 1, residentId: 1, medicationId: 1, scheduledTime: 1, actualTime: -1 });
 
 module.exports = mongoose.model("MarEntry", MarEntrySchema);

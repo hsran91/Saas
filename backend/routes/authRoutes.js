@@ -6,6 +6,8 @@ const rateLimit = require("express-rate-limit");
 const auth = require("../middleware/auth");
 const User = require("../models/User");
 const Resident = require("../models/Resident");
+const { incrementLoginFailure } = require("../services/metrics");
+const { logRequest } = require("../utils/logger");
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -101,17 +103,18 @@ router.post("/login", loginLimiter, async (req, res) => {
   try {
     const { username, email, password, tenantId } = req.body;
     const loginKey = username || email;
-
-    if (!loginKey || !password) {
-      return res.status(400).json({ error: "Username and password are required" });
-    }
-
     const rawTenantId = typeof tenantId === "string"
       ? tenantId.trim()
       : (typeof req.headers["x-tenant-id"] === "string" ? req.headers["x-tenant-id"].trim() : "");
     const normalizedTenantId = rawTenantId || "";
 
+    if (!loginKey || !password) {
+      incrementLoginFailure("missing_credentials", normalizedTenantId || undefined);
+      return res.status(400).json({ error: "Username and password are required" });
+    }
+
     if (normalizedTenantId && !mongoose.Types.ObjectId.isValid(normalizedTenantId)) {
+      incrementLoginFailure("invalid_tenant", normalizedTenantId || undefined);
       return res.status(400).json({ error: "tenantId must be a valid id" });
     }
 
@@ -131,17 +134,22 @@ router.post("/login", loginLimiter, async (req, res) => {
         : await User.countDocuments({ email: loginKey });
       if (duplicates > 1) {
         await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
+        incrementLoginFailure("missing_tenant_context");
         return res.status(400).json({ error: "Tenant ID is required for this account" });
       }
     }
 
     if (!user) {
       await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
+      incrementLoginFailure("user_not_found", normalizedTenantId || undefined);
       return res.status(401).json({ error: AUTH_FAILURE_MESSAGE });
     }
 
     const match = await bcrypt.compare(password, user.password);
-    if (!match) return res.status(401).json({ error: AUTH_FAILURE_MESSAGE });
+    if (!match) {
+      incrementLoginFailure("password_mismatch", String(user.tenantId));
+      return res.status(401).json({ error: AUTH_FAILURE_MESSAGE });
+    }
 
     const token = jwt.sign(
       { id: user._id, role: user.role, name: user.name, residentId: user.residentId, tenantId: user.tenantId },
@@ -153,8 +161,15 @@ router.post("/login", loginLimiter, async (req, res) => {
       }
     );
 
+    logRequest("info", req, "Login succeeded", {
+      loginKey,
+      authenticatedUserId: String(user._id),
+      authenticatedRole: user.role,
+      tenantId: String(user.tenantId)
+    });
     res.json({ message: "Login successful", token, user, tenantId: String(user.tenantId) });
   } catch (err) {
+    incrementLoginFailure("exception");
     res.status(500).json({ error: err.message });
   }
 });

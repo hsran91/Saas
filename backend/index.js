@@ -24,7 +24,15 @@ const marRoutes = require("./routes/marRoutes");
 const invoiceRoutes = require("./routes/invoiceRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const auth = require("./middleware/auth");
+const { requestContext, requestLifecycle } = require("./middleware/requestContext");
 const { notFoundHandler, errorHandler } = require("./middleware/errorHandler");
+const { getMetrics, metricsContentType, metricsAccessGuard } = require("./services/metrics");
+const { checkStorageReadiness, shouldServeLocalUploads, getLocalUploadDir } = require("./services/uploadStorage");
+const { validateNonDevelopmentConfig } = require("./services/config");
+const { getTransactionReadiness } = require("./services/transactions");
+const { registerDefaultJobHandlers } = require("./workers/jobs");
+const { startJobWorker } = require("./services/jobQueue");
+const { logInfo, logWarn, logError } = require("./utils/logger");
 
 const app = express();
 
@@ -58,6 +66,11 @@ const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || "")
 
 if (!IS_DEV && CORS_ALLOWED_ORIGINS.length === 0) {
   throw new Error("Missing required environment variable: CORS_ALLOWED_ORIGINS");
+}
+
+const configValidation = validateNonDevelopmentConfig(process.env);
+if (!configValidation.valid) {
+  throw new Error(`Invalid non-development configuration: ${configValidation.errors.join("; ")}`);
 }
 
 const corsOptions = {
@@ -103,6 +116,8 @@ if (TRUST_PROXY) {
 // =========================
 // MIDDLEWARE
 // =========================
+app.use(requestContext);
+app.use(requestLifecycle);
 app.use(helmet());
 app.use(cors(corsOptions));
 app.use(express.json({ limit: JSON_BODY_LIMIT }));
@@ -110,7 +125,51 @@ app.use(express.urlencoded({ extended: true, limit: URLENCODED_BODY_LIMIT }));
 
 // Serve frontend assets and uploaded files
 app.use(express.static(path.join(__dirname, "..", "frontend")));
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+if (shouldServeLocalUploads()) {
+  app.use("/uploads", express.static(getLocalUploadDir()));
+}
+
+app.get("/healthz", (req, res) => {
+  res.json({
+    status: "ok",
+    uptimeSeconds: Math.round(process.uptime()),
+    correlationId: req.correlationId
+  });
+});
+
+app.get("/readyz", async (req, res) => {
+  const databaseReady = mongoose.connection.readyState === 1;
+  const storage = await checkStorageReadiness();
+  const transactions = getTransactionReadiness();
+  const ready = databaseReady && storage.ready && transactions.ready;
+
+  res.status(ready ? 200 : 503).json({
+    status: ready ? "ready" : "not_ready",
+    correlationId: req.correlationId,
+    checks: {
+      database: databaseReady ? "up" : "down",
+      storage: storage.ready ? "up" : "down",
+      queue: databaseReady ? "up" : "down",
+      transactions: transactions.ready ? "up" : "down"
+    },
+    details: {
+      storageDriver: storage.driver,
+      storageError: storage.error || null,
+      transactionTopology: transactions.topologyType,
+      transactionRequired: transactions.required,
+      transactionError: transactions.error
+    }
+  });
+});
+
+app.get("/metrics", metricsAccessGuard, async (req, res, next) => {
+  try {
+    res.setHeader("Content-Type", metricsContentType);
+    res.end(await getMetrics());
+  } catch (err) {
+    next(err);
+  }
+});
 
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "..", "frontend", "index.html"));
@@ -138,7 +197,7 @@ async function getOrCreateDefaultTenant() {
       slug: DEFAULT_TENANT_SLUG,
       name: DEFAULT_TENANT_NAME
     });
-    console.log(`Created default tenant: ${tenant.slug}`);
+    logInfo("Created default tenant", { tenantSlug: tenant.slug, tenantId: String(tenant._id) });
   }
   return tenant;
 }
@@ -161,13 +220,19 @@ async function backfillTenantIds(defaultTenantId) {
     );
 
     if ((result.modifiedCount || 0) > 0) {
-      console.log(`Backfilled ${result.modifiedCount} ${Model.modelName} record(s) with tenantId.`);
+      logInfo("Backfilled tenant ids", {
+        model: Model.modelName,
+        modifiedCount: result.modifiedCount || 0,
+        tenantId: String(defaultTenantId)
+      });
     }
   }
 }
 
 async function seedDevelopmentUsers(defaultTenantId) {
-  console.warn("SEED_ON_BOOT is enabled. Running development seed logic.");
+  logWarn("SEED_ON_BOOT is enabled. Running development seed logic.", {
+    tenantId: String(defaultTenantId)
+  });
 
   const adminEmail = "hsran91@gmail.com";
   const adminPassword = "hman123";
@@ -184,21 +249,21 @@ async function seedDevelopmentUsers(defaultTenantId) {
       password: hashed,
       role: "admin"
     });
-    console.log("Seeded admin user: admhasen / hman123");
+    logInfo("Seeded admin user", { tenantId: String(defaultTenantId), username: adminUsername });
   } else {
     const updates = {};
     if (!existingAdmin.username || existingAdmin.username !== adminUsername) updates.username = adminUsername;
     if (existingAdmin.role !== "admin") updates.role = "admin";
     if (Object.keys(updates).length > 0) {
       await User.findByIdAndUpdate(existingAdmin._id, updates);
-      console.log("Updated existing admin username/role to admhasen/admin");
+      logInfo("Updated existing admin username or role", { tenantId: String(defaultTenantId), userId: String(existingAdmin._id) });
     }
 
     const passwordMatches = await bcrypt.compare(adminPassword, existingAdmin.password);
     if (!passwordMatches) {
       const hashed = await bcrypt.hash(adminPassword, 10);
       await User.findByIdAndUpdate(existingAdmin._id, { password: hashed });
-      console.log("Updated existing admin password to hman123");
+      logInfo("Updated existing admin password", { tenantId: String(defaultTenantId), userId: String(existingAdmin._id) });
     }
   }
 
@@ -217,7 +282,7 @@ async function seedDevelopmentUsers(defaultTenantId) {
       password: hashed,
       role: "medtech"
     });
-    console.log("Seeded medtech user: medtech1 / med123");
+    logInfo("Seeded medtech user", { tenantId: String(defaultTenantId), username: medtechUsername });
   }
 
   const poaEmail = "poa@example.com";
@@ -249,14 +314,14 @@ async function seedDevelopmentUsers(defaultTenantId) {
       role: "poa",
       residentId: poaResidentId
     });
-    console.log("Seeded POA user: respoa / poa123");
+    logInfo("Seeded POA user", { tenantId: String(defaultTenantId), username: poaUsername, residentId: String(poaResidentId) });
   } else {
     poaResidentId = existingPoa.residentId;
     const passwordMatches = await bcrypt.compare(poaPassword, existingPoa.password);
     if (!passwordMatches) {
       const hashed = await bcrypt.hash(poaPassword, 10);
       await User.findByIdAndUpdate(existingPoa._id, { password: hashed });
-      console.log("Updated existing POA password to poa123");
+      logInfo("Updated existing POA password", { tenantId: String(defaultTenantId), userId: String(existingPoa._id) });
     }
     if (!existingPoa.residentId) {
       let resident = await Resident.findOne({ tenantId: defaultTenantId, firstName: residentName, roomNumber: residentRoom });
@@ -270,7 +335,7 @@ async function seedDevelopmentUsers(defaultTenantId) {
       }
       poaResidentId = resident._id;
       await User.findByIdAndUpdate(existingPoa._id, { residentId: poaResidentId });
-      console.log("Updated existing POA user resident link");
+      logInfo("Updated existing POA resident link", { tenantId: String(defaultTenantId), userId: String(existingPoa._id), residentId: String(poaResidentId) });
     }
   }
 }
@@ -283,7 +348,18 @@ const PORT = Number(process.env.PORT) || 5000;
 mongoose
   .connect(MONGODB_URI)
   .then(async () => {
-    console.log("MongoDB connected");
+    logInfo("MongoDB connected");
+    const transactionReadiness = getTransactionReadiness();
+    if (!transactionReadiness.ready) {
+      throw new Error(transactionReadiness.error);
+    }
+    logInfo("Transaction readiness evaluated", {
+      topologyType: transactionReadiness.topologyType,
+      required: transactionReadiness.required,
+      capable: transactionReadiness.capable
+    });
+    registerDefaultJobHandlers();
+    startJobWorker();
 
     const defaultTenant = await getOrCreateDefaultTenant();
 
@@ -294,12 +370,14 @@ mongoose
     if (IS_DEV && SHOULD_SEED_ON_BOOT) {
       await seedDevelopmentUsers(defaultTenant._id);
     } else {
-      console.log("Startup seed skipped. Set NODE_ENV=development and SEED_ON_BOOT=true to enable.");
+      logInfo("Startup seed skipped", {
+        reason: "Set NODE_ENV=development and SEED_ON_BOOT=true to enable."
+      });
     }
 
-    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+    app.listen(PORT, () => logInfo("Server listening", { port: PORT }));
   })
   .catch((err) => {
-    console.error("MongoDB connection error:", err);
+    logError("MongoDB connection error", { error: err.message, stack: err.stack });
     process.exit(1);
   });

@@ -55,6 +55,7 @@ const InvoiceSchema = new mongoose.Schema({
   },
 }, { timestamps: true });
 
+InvoiceSchema.index({ tenantId: 1, createdAt: -1 });
 InvoiceSchema.index({ tenantId: 1, residentId: 1, createdAt: -1 });
 InvoiceSchema.index({ tenantId: 1, status: 1, createdAt: -1 });
 

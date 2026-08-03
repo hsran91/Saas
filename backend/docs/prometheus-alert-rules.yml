@@ -1,0 +1,49 @@
+groups:
+  - name: emar-backend
+    rules:
+      - alert: EmarHighHttpErrorRate
+        expr: |
+          sum(rate(emar_http_request_errors_total[5m]))
+          /
+          clamp_min(sum(rate(emar_http_requests_total[5m])), 0.001)
+          > 0.05
+        for: 10m
+        labels:
+          severity: critical
+          service: emar-backend
+        annotations:
+          summary: eMAR backend error rate is elevated
+          description: More than 5% of API requests have been failing for 10 minutes.
+
+      - alert: EmarHighLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(emar_http_request_duration_ms_bucket[5m]))
+          ) > 1000
+        for: 10m
+        labels:
+          severity: warning
+          service: emar-backend
+        annotations:
+          summary: eMAR backend latency is elevated
+          description: The p95 API latency has been above 1000ms for 10 minutes.
+
+      - alert: EmarLoginFailuresSpike
+        expr: sum(rate(emar_login_failures_total[10m])) > 0.2
+        for: 15m
+        labels:
+          severity: warning
+          service: emar-backend
+        annotations:
+          summary: Login failures are spiking
+          description: Failed logins have remained above 0.2 per second for 15 minutes.
+
+      - alert: EmarMarWriteFailuresDetected
+        expr: sum(increase(emar_mar_write_failures_total[15m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+          service: emar-backend
+        annotations:
+          summary: MAR write failures detected
+          description: At least one MAR write failure was recorded in the last 15 minutes.

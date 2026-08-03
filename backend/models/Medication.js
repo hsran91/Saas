@@ -20,6 +20,7 @@ const MedicationSchema = new mongoose.Schema({
   endDate: { type: Date }
 }, { timestamps: true });
 
+MedicationSchema.index({ tenantId: 1, createdAt: -1 });
 MedicationSchema.index({ tenantId: 1, residentId: 1, createdAt: -1 });
 MedicationSchema.index({ tenantId: 1, residentId: 1, name: 1 });
 

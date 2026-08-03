@@ -1,3 +1,5 @@
+const { logRequest, serializeError } = require("../utils/logger");
+
 function notFoundHandler(req, res, next) {
   const err = new Error(`Route not found: ${req.method} ${req.originalUrl}`);
   err.status = 404;
@@ -37,7 +39,10 @@ function getErrorMessage(err, status) {
 
 function errorHandler(err, req, res, next) {
   const status = getErrorStatus(err);
-  const payload = { error: getErrorMessage(err, status) };
+  const payload = {
+    error: getErrorMessage(err, status),
+    correlationId: req?.correlationId
+  };
 
   if (process.env.NODE_ENV !== "production") {
     payload.details = {
@@ -48,13 +53,9 @@ function errorHandler(err, req, res, next) {
   }
 
   if (status >= 500) {
-    console.error("Unhandled server error:", {
-      method: req.method,
-      url: req.originalUrl,
+    logRequest("error", req, "Unhandled server error", {
       status,
-      name: err?.name,
-      message: err?.message,
-      stack: err?.stack
+      error: serializeError(err)
     });
   }
 

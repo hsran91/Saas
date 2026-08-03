@@ -18,6 +18,7 @@ const ResidentSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 ResidentSchema.index({ tenantId: 1, residentCode: 1 }, { unique: true, sparse: true });
+ResidentSchema.index({ tenantId: 1, createdAt: -1 });
 ResidentSchema.index({ tenantId: 1, roomNumber: 1, firstName: 1 });
 
 module.exports = mongoose.model("Resident", ResidentSchema);

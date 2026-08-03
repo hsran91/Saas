@@ -4,6 +4,9 @@ const router = express.Router();
 const Medication = require('../models/Medication');
 const Resident = require('../models/Resident');
 const auth = require('../middleware/auth');
+const { getPagination, setPaginationHeaders } = require('../utils/pagination');
+const { recordAuditEvent } = require('../services/auditLog');
+const { runWriteTransaction } = require('../services/transactions');
 
 const ALLOWED_MEDICATION_FIELDS = new Set([
   'name',
@@ -164,29 +167,51 @@ function validateAndNormalizeMedicationPayload(body, options = {}) {
 // Create a medication (expects residentId in body)
 router.post('/', auth.requireRole('admin', 'medtech', 'rn'), async (req, res) => {
   try {
-    const tenantId = req.tenantId;
-    const payload = validateAndNormalizeMedicationPayload(req.body);
-    const { residentId } = payload;
+    const med = await runWriteTransaction(async (session) => {
+      const tenantId = req.tenantId;
+      const payload = validateAndNormalizeMedicationPayload(req.body);
+      const { residentId } = payload;
 
-    const resident = await Resident.findOne({ _id: residentId, tenantId }).lean();
-    if (!resident) {
-      return res.status(404).json({ error: 'Resident not found' });
-    }
+      const residentQuery = Resident.findOne({ _id: residentId, tenantId });
+      if (session) residentQuery.session(session);
+      const resident = await residentQuery.lean();
+      if (!resident) {
+        return res.status(404).json({ error: 'Resident not found' });
+      }
 
-    if (req.user.role === 'poa' && String(req.user.residentId) !== String(residentId)) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
+      if (req.user.role === 'poa' && String(req.user.residentId) !== String(residentId)) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
 
-    if (payload.startDate && payload.endDate && payload.endDate < payload.startDate) {
-      return res.status(400).json({ error: 'endDate must be later than or equal to startDate' });
-    }
+      if (payload.startDate && payload.endDate && payload.endDate < payload.startDate) {
+        return res.status(400).json({ error: 'endDate must be later than or equal to startDate' });
+      }
 
-    const med = new Medication({
-      tenantId,
-      ...payload
+      const med = new Medication({
+        tenantId,
+        ...payload
+      });
+      await med.save(session ? { session } : undefined);
+      await recordAuditEvent({
+        req,
+        tenantId,
+        action: 'medication.create',
+        entityType: 'Medication',
+        entityId: med._id,
+        residentId: med.residentId,
+        medicationId: med._id,
+        details: {
+          name: med.name,
+          status: med.status
+        },
+        session
+      });
+
+      return med;
     });
-    await med.save();
-    res.json(med);
+    if (!res.headersSent) {
+      res.json(med);
+    }
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -195,7 +220,12 @@ router.post('/', auth.requireRole('admin', 'medtech', 'rn'), async (req, res) =>
 // Get medications for a resident
 router.get('/:residentId', auth.requireRole('admin', 'medtech', 'rn'), async (req, res) => {
   try {
-    const meds = await Medication.find({ tenantId: req.tenantId, residentId: req.params.residentId }).sort({ createdAt: -1 });
+    const pagination = getPagination(req.query, { defaultLimit: 50, maxLimit: 200 });
+    const meds = await Medication.find({ tenantId: req.tenantId, residentId: req.params.residentId })
+      .sort({ createdAt: -1 })
+      .skip(pagination.skip)
+      .limit(pagination.limit);
+    setPaginationHeaders(res, pagination, meds.length);
     res.json(meds);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -205,32 +235,51 @@ router.get('/:residentId', auth.requireRole('admin', 'medtech', 'rn'), async (re
 // Update a medication
 router.put('/:id', auth.requireRole('admin', 'medtech', 'rn'), async (req, res) => {
   try {
-    const med = await Medication.findOne({ _id: req.params.id, tenantId: req.tenantId });
-    if (!med) {
-      return res.status(404).json({ error: 'Medication not found' });
-    }
-
-    const payload = validateAndNormalizeMedicationPayload(req.body, { isUpdate: true });
-
-    if (payload.endDate && !payload.startDate && med.startDate && payload.endDate < med.startDate) {
-      return res.status(400).json({ error: 'endDate must be later than or equal to startDate' });
-    }
-    if (payload.startDate && !payload.endDate && med.endDate && med.endDate < payload.startDate) {
-      return res.status(400).json({ error: 'startDate must be earlier than or equal to endDate' });
-    }
-    if (payload.startDate && payload.endDate && payload.endDate < payload.startDate) {
-      return res.status(400).json({ error: 'endDate must be later than or equal to startDate' });
-    }
-
-    const fields = ['name', 'dosage', 'route', 'frequency', 'time', 'times', 'instructions', 'status', 'startDate', 'endDate'];
-    fields.forEach((field) => {
-      if (Object.prototype.hasOwnProperty.call(payload, field)) {
-        med[field] = payload[field];
+    const med = await runWriteTransaction(async (session) => {
+      const medQuery = Medication.findOne({ _id: req.params.id, tenantId: req.tenantId });
+      if (session) medQuery.session(session);
+      const med = await medQuery;
+      if (!med) {
+        return res.status(404).json({ error: 'Medication not found' });
       }
-    });
 
-    await med.save();
-    res.json(med);
+      const payload = validateAndNormalizeMedicationPayload(req.body, { isUpdate: true });
+
+      if (payload.endDate && !payload.startDate && med.startDate && payload.endDate < med.startDate) {
+        return res.status(400).json({ error: 'endDate must be later than or equal to startDate' });
+      }
+      if (payload.startDate && !payload.endDate && med.endDate && med.endDate < payload.startDate) {
+        return res.status(400).json({ error: 'startDate must be earlier than or equal to endDate' });
+      }
+      if (payload.startDate && payload.endDate && payload.endDate < payload.startDate) {
+        return res.status(400).json({ error: 'endDate must be later than or equal to startDate' });
+      }
+
+      const fields = ['name', 'dosage', 'route', 'frequency', 'time', 'times', 'instructions', 'status', 'startDate', 'endDate'];
+      fields.forEach((field) => {
+        if (Object.prototype.hasOwnProperty.call(payload, field)) {
+          med[field] = payload[field];
+        }
+      });
+
+      await med.save(session ? { session } : undefined);
+      await recordAuditEvent({
+        req,
+        tenantId: req.tenantId,
+        action: 'medication.update',
+        entityType: 'Medication',
+        entityId: med._id,
+        residentId: med.residentId,
+        medicationId: med._id,
+        details: payload,
+        session
+      });
+
+      return med;
+    });
+    if (!res.headersSent) {
+      res.json(med);
+    }
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -239,11 +288,33 @@ router.put('/:id', auth.requireRole('admin', 'medtech', 'rn'), async (req, res) 
 // Delete a medication
 router.delete('/:id', auth.requireRole('admin', 'medtech', 'rn'), async (req, res) => {
   try {
-    const deleted = await Medication.findOneAndDelete({ _id: req.params.id, tenantId: req.tenantId });
-    if (!deleted) {
-      return res.status(404).json({ error: 'Medication not found' });
+    const deleted = await runWriteTransaction(async (session) => {
+      const deleteQuery = Medication.findOneAndDelete({ _id: req.params.id, tenantId: req.tenantId });
+      if (session) deleteQuery.session(session);
+      const deleted = await deleteQuery;
+      if (!deleted) {
+        return res.status(404).json({ error: 'Medication not found' });
+      }
+      await recordAuditEvent({
+        req,
+        tenantId: req.tenantId,
+        action: 'medication.delete',
+        entityType: 'Medication',
+        entityId: deleted._id,
+        residentId: deleted.residentId,
+        medicationId: deleted._id,
+        details: {
+          name: deleted.name,
+          status: deleted.status
+        },
+        session
+      });
+
+      return deleted;
+    });
+    if (!res.headersSent) {
+      res.json({ message: 'Medication deleted', id: deleted._id });
     }
-    res.json({ message: 'Medication deleted' });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
