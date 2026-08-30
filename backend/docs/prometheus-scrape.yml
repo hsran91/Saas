@@ -13,4 +13,4 @@ scrape_configs:
       type: Bearer
       credentials: replace_with_metrics_token
     headers:
-      x-metrics-token: replace_with_metrics_token
+      x-metrics-token: 46501beb275aa5ba0516da1f7bc4ae8ba56b31e95b32aca507800dcfe13e8460

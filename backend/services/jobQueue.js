@@ -135,7 +135,12 @@ function startJobWorker() {
   }
 
   workerTimer = setInterval(() => {
-    void processJobs();
+    void processJobs().catch((err) => {
+      logError("Job worker iteration failed", {
+        error: err.message,
+        stack: err.stack
+      });
+    });
   }, JOB_POLL_INTERVAL_MS);
 
   if (typeof workerTimer.unref === "function") {

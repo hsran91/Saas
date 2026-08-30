@@ -47,6 +47,30 @@ function validateNonDevelopmentConfig(env = process.env) {
     errors.push("MONGODB_URI must be set to a non-placeholder value");
   }
 
+  if (env.EMAIL_ENABLED === "true") {
+    const provider = String(env.EMAIL_PROVIDER || "").trim().toLowerCase();
+
+    if (!provider) {
+      errors.push("EMAIL_PROVIDER must be set when EMAIL_ENABLED=true");
+    }
+
+    if (!env.EMAIL_FROM || isPlaceholderValue(env.EMAIL_FROM)) {
+      errors.push("EMAIL_FROM must be set to a non-placeholder value when EMAIL_ENABLED=true");
+    }
+
+    if (provider === "sendgrid") {
+      if (!env.SENDGRID_API_KEY || isPlaceholderValue(env.SENDGRID_API_KEY)) {
+        errors.push("SENDGRID_API_KEY must be set to a non-placeholder value when EMAIL_PROVIDER=sendgrid");
+      }
+    } else if (provider === "postmark") {
+      if (!env.POSTMARK_SERVER_TOKEN || isPlaceholderValue(env.POSTMARK_SERVER_TOKEN)) {
+        errors.push("POSTMARK_SERVER_TOKEN must be set to a non-placeholder value when EMAIL_PROVIDER=postmark");
+      }
+    } else if (provider) {
+      errors.push("EMAIL_PROVIDER must be either sendgrid or postmark");
+    }
+  }
+
   return {
     valid: errors.length === 0,
     errors

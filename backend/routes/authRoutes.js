@@ -7,6 +7,7 @@ const auth = require("../middleware/auth");
 const User = require("../models/User");
 const Resident = require("../models/Resident");
 const { incrementLoginFailure } = require("../services/metrics");
+const { sendUserProvisionedEmail } = require("../services/email");
 const { logRequest } = require("../utils/logger");
 
 const router = express.Router();
@@ -90,6 +91,15 @@ router.post("/register", auth, auth.requireRole("admin"), async (req, res) => {
       password: hashed,
       role,
       residentId: role === "poa" ? poaResidentId : undefined,
+    });
+
+    void sendUserProvisionedEmail({
+      to: user.email,
+      name: user.name,
+      username: user.username,
+      role: user.role,
+      tenantId: String(user.tenantId),
+      issuedBy: req.user?.name || req.user?.id || "administrator"
     });
 
     res.json({ message: "User registered", user: { id: user._id, name: user.name, username: user.username, role: user.role } });
