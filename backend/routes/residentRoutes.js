@@ -41,6 +41,27 @@ function normalizeOptionalString(value, fieldName, maxLength) {
   return trimmed;
 }
 
+function normalizeStoredPhotoUrl(photoUrl) {
+  if (!photoUrl || typeof photoUrl !== "string") return null;
+
+  let value = photoUrl.trim().replace(/\\/g, "/");
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value) || /^data:/i.test(value) || value.startsWith("blob:")) {
+    return value;
+  }
+
+  value = value.replace(/^([a-zA-Z]:)/, "");
+  const match = value.match(/(?:^|\/)(uploads\/.+|residents\/.+)$/i);
+  if (match) {
+    return `/${match[1]}`;
+  }
+
+  if (!value.startsWith("/")) {
+    value = `/${value}`;
+  }
+  return value;
+}
+
 function validateAndNormalizeResidentPayload(body) {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new Error("Request body must be an object.");
@@ -128,6 +149,7 @@ router.post("/", auth.requireRole("admin", "medtech", "rn"), upload.single("phot
     });
 
     const out = resident.toObject();
+    if (out.photoUrl) out.photoUrl = normalizeStoredPhotoUrl(out.photoUrl);
     if (req.user.role !== "admin") delete out.residentCode;
     res.json(out);
   } catch (err) {
@@ -164,6 +186,7 @@ router.get("/", auth.requireRole("admin", "medtech", "rn", "poa"), async (req, r
         await r.save();
       }
       const obj = r.toObject();
+      if (obj.photoUrl) obj.photoUrl = normalizeStoredPhotoUrl(obj.photoUrl);
       if (req.user.role !== "admin") delete obj.residentCode;
       return obj;
     }));
@@ -189,7 +212,10 @@ router.get("/:id", auth.requireRole("admin", "medtech", "rn", "poa"), async (req
       await resident.save();
     }
     const out = resident ? resident.toObject() : null;
-    if (out && req.user.role !== "admin") delete out.residentCode;
+    if (out) {
+      if (out.photoUrl) out.photoUrl = normalizeStoredPhotoUrl(out.photoUrl);
+      if (req.user.role !== "admin") delete out.residentCode;
+    }
     res.json(out);
   } catch (err) {
     res.status(500).json({ error: err.message });

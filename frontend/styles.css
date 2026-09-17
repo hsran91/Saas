@@ -30,6 +30,47 @@ body {
     box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
 }
 
+.brand-header {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding-bottom: 18px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #111827;
+}
+
+.login-logo {
+    width: 140px;
+    height: 140px;
+    object-fit: contain;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    flex-shrink: 0;
+}
+
+.brand-header-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.brand-name {
+    font-size: 1.35rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: #f8fafc;
+}
+
+.brand-subtitle {
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #7dd3fc;
+}
+
 .login-card h1 {
     margin-bottom: 10px;
     font-size: 28px;
@@ -98,14 +139,14 @@ body {
 
 .logo-image {
     display: block;
-    width: 42px;
-    height: 42px;
-    min-width: 42px;
-    border-radius: 12px;
+    width: 64px;
+    height: 64px;
+    min-width: 64px;
+    border-radius: 0;
     object-fit: contain;
-    background: #111827;
-    padding: 6px;
-    border: 1px solid rgba(14, 165, 233, 0.25);
+    background: transparent;
+    padding: 0;
+    border: none;
 }
 
 .logo-text {
@@ -837,7 +878,8 @@ body {
 
 .med-list.pass-finalized {
     opacity: 0.55;
-    pointer-events: none;
+    pointer-events: auto;
+    cursor: default;
 }
 
 .med-card {
@@ -950,16 +992,133 @@ body {
     gap: 10px;
 }
 
+.mar-resident-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 200px));
+    gap: 18px;
+    margin-top: 12px;
+    justify-content: flex-start;
+}
+
+.mar-resident-card {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    width: 180px;
+    min-height: 285px;
+    background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
+    border: 2px solid #cbd5e1;
+    border-radius: 18px;
+    padding: 0;
+    overflow: hidden;
+    cursor: pointer;
+    text-align: center;
+    color: #0f172a;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.22);
+    position: relative;
+}
+
+.mar-resident-card::before {
+    content: "";
+    position: absolute;
+    inset: 10px 10px auto 10px;
+    height: 12px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #2563eb, #60a5fa);
+    opacity: 0.9;
+}
+
+.mar-resident-card img {
+    width: 100%;
+    height: 190px;
+    object-fit: cover;
+    object-position: center top;
+    background: #cbd5e1;
+    border-bottom: 1px solid #94a3b8;
+    padding-top: 18px;
+}
+
+.mar-resident-card-body {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 5px;
+    padding: 12px 10px 14px;
+    flex: 1;
+    background: rgba(255, 255, 255, 0.25);
+}
+
+.mar-resident-card-name {
+    font-size: 18px;
+    font-weight: 800;
+    line-height: 1.2;
+    letter-spacing: 0.02em;
+    color: #0f172a;
+}
+
+.mar-resident-card-room {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 90px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #0f172a;
+    color: #f8fafc;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+
+.mar-resident-card-count {
+    color: #1d4ed8;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-top: 2px;
+}
+
 .mar-entry {
     background: #020617;
     border-radius: 10px;
     border: 1px solid #111827;
     padding: 10px 12px;
+    cursor: pointer;
+}
+
+.mar-entry-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 6px;
 }
 
 .mar-entry strong {
     display: block;
-    margin-bottom: 4px;
+    margin-bottom: 0;
+}
+
+.mar-resident-link {
+    background: transparent;
+    border: 1px solid #334155;
+    border-radius: 999px;
+    color: #dbeafe;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s ease;
+}
+
+.mar-resident-link:hover,
+.mar-resident-link:focus-visible,
+.mar-resident-card:hover,
+.mar-resident-card:focus-visible {
+    background: rgba(59, 130, 246, 0.12);
+    border-color: #60a5fa;
+    outline: none;
 }
 
 /* FORMS */

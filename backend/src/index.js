@@ -114,12 +114,15 @@ if (TRUST_PROXY) {
 
 app.use(requestContext);
 app.use(requestLifecycle);
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: false
+}));
 app.use(cors(corsOptions));
 app.use(express.json({ limit: JSON_BODY_LIMIT }));
 app.use(express.urlencoded({ extended: true, limit: URLENCODED_BODY_LIMIT }));
 
-app.use(express.static(path.join(__dirname, "..", "frontend")));
+const frontendRoot = path.join(__dirname, "..", "..", "frontend");
+app.use(express.static(frontendRoot));
 if (shouldServeLocalUploads()) {
   app.use("/uploads", express.static(getLocalUploadDir()));
 }
@@ -167,7 +170,7 @@ app.get("/metrics", metricsAccessGuard, async (req, res, next) => {
 });
 
 app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "..", "frontend", "index.html"));
+  res.sendFile(path.join(frontendRoot, "index.html"));
 });
 
 app.use("/auth", authRouteLimiter, authRoutes);

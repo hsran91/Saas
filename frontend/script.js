@@ -110,6 +110,29 @@ function getAuthHeaders() {
     };
 }
 
+function bindLegacyInlineHandlers() {
+    if (typeof document === "undefined" || !document.addEventListener) return;
+
+    document.addEventListener("click", function (event) {
+        const target = event.target && event.target.closest ? event.target.closest("[onclick]") : null;
+        if (!target) return;
+
+        const source = target.getAttribute("onclick");
+        if (!source) return;
+
+        target.removeAttribute("onclick");
+
+        try {
+            const execute = new Function("event", source);
+            execute.call(target, event);
+        } catch (error) {
+            console.error("Error running legacy inline handler:", error);
+        }
+    }, true);
+}
+
+bindLegacyInlineHandlers();
+
 function authFetch(url, options = {}) {
     const headers = {
         ...(options.headers || {}),
@@ -140,6 +163,40 @@ function escapeHtml(text) {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
+}
+
+function normalizeResidentPhotoUrl(photoUrl) {
+    if (!photoUrl) return "";
+
+    let value = String(photoUrl).trim().replace(/\\/g, "/");
+    if (!value) return "";
+    if (/^https?:\/\//i.test(value) || /^data:/i.test(value) || value.startsWith("blob:")) {
+        return value;
+    }
+
+    value = value.replace(/^([a-zA-Z]:)/, "");
+
+    const uploadMatch = value.match(/(?:^|\/)(uploads\/.+|residents\/.+)$/i);
+    if (uploadMatch) {
+        value = `/${uploadMatch[1]}`;
+    } else {
+        value = value.replace(/^\.\//, "");
+        value = value.replace(/^\/+/, "");
+        value = value.startsWith("/") ? value : `/${value}`;
+    }
+
+    return value;
+}
+
+function resolveResidentPhotoUrl(photoUrl) {
+    const normalized = normalizeResidentPhotoUrl(photoUrl);
+    if (!normalized) return "images/placeholder.svg";
+
+    if (/^https?:\/\//i.test(normalized) || /^data:/i.test(normalized) || normalized.startsWith("blob:")) {
+        return normalized;
+    }
+
+    return `${API_BASE}${normalized}`;
 }
 
 function updateRoleUI() {
@@ -370,7 +427,7 @@ async function loadResidentCards() {
             const card = document.createElement("div");
             card.classList.add("resident-card");
 
-            const thumbSrc = resident.photoUrl ? `${API_BASE}${resident.photoUrl}` : "images/placeholder.svg";
+            const thumbSrc = resolveResidentPhotoUrl(resident.photoUrl);
 
             let isDue = false;
             if (shouldCheckMeds) {
@@ -389,7 +446,7 @@ async function loadResidentCards() {
 
             card.innerHTML = `
                     <div class="resident-card-row">
-                        <img class="resident-thumb" src="${thumbSrc}" alt="${resident.firstName} ${resident.lastName}">
+                        <img class="resident-thumb" src="${thumbSrc}" alt="${resident.firstName} ${resident.lastName}" onerror="this.onerror=null;this.src='images/placeholder.svg';">
                         <div class="resident-card-body">
                             <div class="resident-card-header">
                                 <h3>${resident.firstName} ${resident.lastName}</h3>
@@ -616,12 +673,12 @@ function renderMedPassResidentCards(residentsForCards) {
             card.classList.add("selected");
         }
 
-        const thumbSrc = resident.photoUrl ? `${API_BASE}${resident.photoUrl}` : "images/placeholder.svg";
+        const thumbSrc = resolveResidentPhotoUrl(resident.photoUrl);
         const dueLabel = isDue ? "Due this shift" : "No meds due this shift";
 
         card.innerHTML = `
             <div class="resident-card-row">
-                <img class="resident-thumb" src="${thumbSrc}" alt="${escapeHtml(`${resident.firstName} ${resident.lastName}`)}">
+                <img class="resident-thumb" src="${thumbSrc}" alt="${escapeHtml(`${resident.firstName} ${resident.lastName}`)}" onerror="this.onerror=null;this.src='images/placeholder.svg';">
                 <div class="resident-card-body">
                     <h3>${escapeHtml(`${resident.firstName} ${resident.lastName}`)}</h3>
                     <p class="muted">Room ${escapeHtml(resident.roomNumber || "-")}</p>
@@ -895,6 +952,14 @@ function showPage(pageId) {
             showPage("billingPage");
             return;
         }
+        const marDateInput = document.getElementById("marDateFilter");
+        if (marDateInput) {
+            const today = new Date();
+            const defaultDate = new Date(today.getTime() - (today.getTimezoneOffset() * 60000)).toISOString().slice(0, 10);
+            if (!marDateInput.value) {
+                marDateInput.value = defaultDate;
+            }
+        }
         loadGlobalMarLog();
     }
     if (pageId === "alertsPage") {
@@ -1010,6 +1075,10 @@ function saveNewResident() {
     })
         .then(payload => payload)
         .then(savedResident => {
+            if (photoFile && !savedResident.photoUrl) {
+                savedResident.photoUrl = URL.createObjectURL(photoFile);
+            }
+
             closeAddResidentModal();
 
             residents.push(savedResident);
@@ -1051,11 +1120,10 @@ function openResidentProfile(id) {
     }
 
     if (photoEl) {
-        if (resident.photoUrl) {
-            photoEl.src = `${API_BASE}${resident.photoUrl}`;
-        } else {
+        photoEl.src = resolveResidentPhotoUrl(resident.photoUrl);
+        photoEl.onerror = () => {
             photoEl.src = "images/placeholder.svg";
-        }
+        };
     }
 
     const residentCodeInfo = document.getElementById("residentCodeInfo");
@@ -1270,6 +1338,10 @@ function showResidentTab(tabId) {
 
     const activeBtn = document.querySelector(`.resident-tabs button[onclick="showResidentTab('${tabId}')"]`);
     if (activeBtn) activeBtn.classList.add("active-tab");
+
+    if (tabId === "marTab" && currentResidentId) {
+        loadMarLog(currentResidentId, getSelectedMarDateValue());
+    }
 
     if (tabId === "billingTab" && currentResidentId) {
         loadBilling(currentResidentId);
@@ -2002,6 +2074,7 @@ function saveMedicationPass() {
                 loadMedications(context.residentId);
                 loadMarLog(context.residentId);
             }
+            loadGlobalMarLog();
             setPassFinalized(true, context.listId, context.finalizeButtonId);
             pendingFinalizeContext = null;
         })
@@ -2279,12 +2352,18 @@ function loadMarLog(residentId) {
 
             container.innerHTML = "";
 
-            if (!entries.length) {
-                container.innerHTML = `<p class="muted">No MAR entries yet.</p>`;
+            const selectedDate = getSelectedMarDateValue();
+            const filteredEntries = entries.filter((entry) => {
+                const entryDate = entry.actualTime || entry.createdAt || Date.now();
+                return matchesMarDay(selectedDate, entryDate);
+            });
+
+            if (!filteredEntries.length) {
+                container.innerHTML = `<p class="muted">No MAR entries for ${selectedDate}.</p>`;
                 return;
             }
 
-            entries.forEach(entry => {
+            filteredEntries.forEach(entry => {
                 const div = document.createElement("div");
                 div.classList.add("mar-entry");
 
@@ -2307,6 +2386,31 @@ function loadMarLog(residentId) {
 }
 
 // Load recent MAR entries across all residents
+function getResidentDisplayName(resident) {
+    if (!resident) return "Unknown resident";
+    if (typeof resident === "string") return resident || "Unknown resident";
+    const fullName = `${resident.firstName || ""} ${resident.lastName || ""}`.trim();
+    return fullName || "Unknown resident";
+}
+
+function getSelectedMarDateValue() {
+    const marDateInput = document.getElementById("marDateFilter");
+    if (marDateInput && marDateInput.value) {
+        return marDateInput.value;
+    }
+
+    const today = new Date();
+    return new Date(today.getTime() - (today.getTimezoneOffset() * 60000)).toISOString().slice(0, 10);
+}
+
+function matchesMarDay(dateValue, entryDate) {
+    if (!dateValue || !entryDate) return false;
+    const normalized = new Date(entryDate);
+    if (Number.isNaN(normalized.getTime())) return false;
+    const localDate = new Date(normalized.getTime() - (normalized.getTimezoneOffset() * 60000));
+    return localDate.toISOString().slice(0, 10) === dateValue;
+}
+
 function loadGlobalMarLog() {
     authFetch(`${API_BASE}/mar`)
         .then(entries => {
@@ -2315,34 +2419,63 @@ function loadGlobalMarLog() {
 
             container.innerHTML = "";
 
-            if (!entries.length) {
-                container.innerHTML = `<p class=\"muted\">No MAR entries yet.</p>`;
+            const selectedDate = getSelectedMarDateValue();
+            const filteredEntries = entries.filter((entry) => {
+                const entryDate = entry.actualTime || entry.createdAt || Date.now();
+                return matchesMarDay(selectedDate, entryDate);
+            });
+
+            if (!filteredEntries.length) {
+                container.innerHTML = `<p class="muted">No MAR entries for ${selectedDate}.</p>`;
                 return;
             }
 
-            entries.forEach(entry => {
-                const div = document.createElement("div");
-                div.classList.add("mar-entry");
-
-                const medName = entry.medicationId?.name || entry.medicationName || "Medication";
-                const residentName = entry.residentId ? `${entry.residentId.firstName} ${entry.residentId.lastName}` : "Unknown resident";
-                const formattedTime = new Date(entry.actualTime || entry.createdAt || Date.now()).toLocaleString();
-
-                div.innerHTML = `
-                    <strong>${medName} — <small>${residentName} (${entry.residentId?.roomNumber || '—'})</small></strong>
-                    <p>Status: ${entry.status}</p>
-                    <p>Scheduled: ${entry.scheduledTime || "N/A"}</p>
-                    ${entry.reason ? `<p>Reason: ${entry.reason}</p>` : ""}
-                    ${entry.staffName ? `<p>By: ${entry.staffName}</p>` : ""}
-                    <p class="muted">${formattedTime}</p>
-                `;
-
-                div.onclick = () => {
-                    if (entry.residentId && entry.residentId._id) openResidentProfile(entry.residentId._id);
-                };
-
-                container.appendChild(div);
+            const grouped = new Map();
+            filteredEntries.forEach(entry => {
+                const residentInfo = entry.residentId || null;
+                const residentId = residentInfo && (residentInfo._id || residentInfo);
+                const key = String(residentId || "unknown");
+                if (!grouped.has(key)) {
+                    grouped.set(key, { residentId: residentId || null, residentInfo, entries: [] });
+                }
+                grouped.get(key).entries.push(entry);
             });
+
+            const grid = document.createElement("div");
+            grid.classList.add("mar-resident-grid");
+
+            grouped.forEach(({ residentId, residentInfo, entries }) => {
+                const residentName = getResidentDisplayName(residentInfo);
+                const roomNumber = residentInfo && residentInfo.roomNumber ? residentInfo.roomNumber : "--";
+                const photoUrl = resolveResidentPhotoUrl(residentInfo && residentInfo.photoUrl ? residentInfo.photoUrl : null);
+
+                const card = document.createElement("button");
+                card.type = "button";
+                card.classList.add("mar-resident-card");
+                card.innerHTML = `
+                    <img src="${photoUrl}" alt="${residentName}" onerror="this.onerror=null;this.src='images/placeholder.svg';">
+                    <div class="mar-resident-card-body">
+                        <div class="mar-resident-card-name">${residentName}</div>
+                        <div class="mar-resident-card-room">Room ${roomNumber}</div>
+                        <div class="mar-resident-card-count">${entries.length} medication(s)</div>
+                    </div>
+                `;
+                card.addEventListener("click", () => {
+                    if (residentId) {
+                        showPage("residentsPage");
+                        openResidentProfile(String(residentId));
+                        showResidentTab("marTab");
+                    }
+                });
+                grid.appendChild(card);
+            });
+
+            container.appendChild(grid);
         })
         .catch(err => console.error("Error loading global MAR log:", err));
+}
+
+const marDateFilter = document.getElementById("marDateFilter");
+if (marDateFilter) {
+    marDateFilter.addEventListener("change", loadGlobalMarLog);
 }

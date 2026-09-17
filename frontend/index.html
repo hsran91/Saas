@@ -10,7 +10,7 @@
     <!-- SIDEBAR -->
     <aside class="sidebar">
         <div class="sidebar-logo">
-            <img src="images/four-brothers.png" alt="App logo" class="logo-image">
+            <img src="images/MediBridge logo.png" alt="MediBridge logo" class="logo-image">
             <span class="logo-text">eMAR</span>
         </div>
 
@@ -151,8 +151,11 @@
         <section id="marPage" class="page" style="display:none;">
             <h2 class="page-title">MAR Log</h2>
             <div class="section-header-row">
-                <p class="muted">Recent MAR entries across residents. Click a resident in the Residents page to view details.</p>
-                <div class="section-header-row-actions">
+                <div class="section-header-row-actions" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                    <label for="marDateFilter" class="muted" style="display:flex; align-items:center; gap:8px; margin:0;">
+                        <span>Medication date</span>
+                        <input id="marDateFilter" type="date" aria-label="Select medication date" style="background:#020617; color:#e5e7eb; border:1px solid #334155; border-radius:8px; padding:6px 10px;">
+                    </label>
                     <button class="secondary-btn" onclick="loadGlobalMarLog()">Refresh</button>
                     <button class="primary-btn" onclick="showPage('residentsPage')">Open Residents</button>
                 </div>
@@ -488,7 +491,7 @@
             </div>
             <div class="form-group full-width">
                 <label for="newResidentPhotoFile">Photo</label>
-                <input type="file" id="newResidentPhotoFile" accept="image/*">
+                <input type="file" id="newResidentPhotoFile" accept="image/*,.png,.jpg,.jpeg,.jfif,.gif,.webp,.bmp,.heic,.heif,.avif,.tif,.tiff,.ico">
             </div>
             <div class="form-group full-width">
                 <img id="residentPhotoPreview" class="resident-photo-preview" style="display:none;">
