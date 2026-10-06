@@ -21,6 +21,9 @@
             <button onclick="showPage('residentsPage')" class="nav-item" id="nav-residents">
                 Residents
             </button>
+            <button onclick="openPoaEvents()" class="nav-item" id="nav-events" style="display:none;">
+                Events
+            </button>
             <button onclick="showPage('medicationsPage')" class="nav-item" id="nav-meds">
                 Medications
             </button>
@@ -94,12 +97,10 @@
                 </div>
                 <div class="section-header-row medpass-header">
                     <div class="medpass-filters">
-                        <div class="form-group">
-                            <label for="medPassResidentSelect">Resident</label>
-                            <select id="medPassResidentSelect" onchange="onMedPassResidentChange()">
-                                <option value="">Select a resident</option>
-                            </select>
-                        </div>
+                        <label class="medpass-resident-search">
+                            <span>Search residents</span>
+                            <input id="medPassResidentSearch" type="search" placeholder="Search by name or room..." autocomplete="off">
+                        </label>
                         <label class="medpass-toggle" for="medPassDueOnlyToggle">
                             <input type="checkbox" id="medPassDueOnlyToggle" onchange="toggleMedPassDueOnly()">
                             <span>Due Only</span>
@@ -115,11 +116,9 @@
                         <button class="primary-btn" onclick="loadMedPassPage(true)">Refresh</button>
                     </div>
                 </div>
-                <p id="medPassSummary" class="muted">Select a resident and shift to begin med pass.</p>
-                <div id="medPassResidentCards" class="resident-grid medpass-resident-grid" aria-label="Med pass resident cards"></div>
                 <div class="medpass-census" aria-label="Shift census panel">
                     <div class="medpass-census-card due">
-                        <span class="medpass-census-label">Due</span>
+                        <span class="medpass-census-label">Late</span>
                         <strong id="medPassCensusDue">0</strong>
                     </div>
                     <div class="medpass-census-card completed">
@@ -139,13 +138,37 @@
                         <strong id="medPassCensusPrn">0</strong>
                     </div>
                 </div>
-                <ul id="medpass-med-list" class="med-list"></ul>
+                <p id="medPassSummary" class="muted medpass-hidden-content">Select a resident and shift to begin med pass.</p>
+                <div id="medPassResidentCards" class="resident-grid medpass-resident-grid" aria-label="Med pass resident cards"></div>
+                <ul id="medpass-med-list" class="med-list medpass-hidden-content"></ul>
             </div>
         </section>
 
         <section id="medicationsPage" class="page" style="display:none;">
             <h2 class="page-title">Medications</h2>
-            <p class="muted">Select a resident from the Residents page to view and manage medications.</p>
+            <div class="medication-directory">
+                <section class="medication-residents-panel" aria-labelledby="medicationResidentsHeading">
+                    <div class="medication-directory-heading">
+                        <h3 id="medicationResidentsHeading">Residents</h3>
+                        <label class="medication-search">
+                            <span class="sr-only">Search residents</span>
+                            <input id="medicationResidentSearch" type="search" placeholder="Search residents..." autocomplete="off">
+                        </label>
+                    </div>
+                    <div id="medicationResidentList" class="resident-grid medication-resident-grid" aria-label="Residents"></div>
+                </section>
+                <section id="residentMedicationPanel" class="medication-list-panel" aria-live="polite">
+                    <div class="medication-list-heading">
+                        <div>
+                            <h3 id="residentMedicationHeading">Resident medications</h3>
+                            <p id="residentMedicationRoom" class="muted"></p>
+                        </div>
+                        <button id="printResidentMedicationButton" class="primary-btn" type="button" onclick="printResidentMedicationList()" disabled>Print List</button>
+                    </div>
+                    <p id="residentMedicationPrompt" class="muted">Select a resident to view their medications.</p>
+                    <ul id="residentMedicationList" class="med-list" style="display:none;"></ul>
+                </section>
+            </div>
         </section>
 
         <section id="marPage" class="page" style="display:none;">
@@ -250,6 +273,8 @@
             <div class="resident-tabs">
                 <button id="residentMedsTabButton" onclick="showResidentTab('medsTab')" class="active-tab">Medications</button>
                 <button id="residentMarTabButton" onclick="showResidentTab('marTab')">MAR Log</button>
+                <button id="residentAppointmentsTabButton" onclick="showResidentTab('appointmentsTab')">Appointments</button>
+                <button id="resident911ChartTabButton" onclick="showResidentTab('911ChartTab')">911 Chart</button>
                 <button id="residentBillingTabButton" onclick="showResidentTab('billingTab')">Billing</button>
             </div>
 
@@ -278,6 +303,32 @@
                 </div>
                 <div id="marLogContainer" class="mar-log">
                     <!-- MAR entries injected here -->
+                </div>
+            </div>
+
+            <div id="appointmentsTab" class="resident-tab" style="display:none;">
+                <div class="section-header-row appointment-calendar-heading">
+                    <h3 id="appointmentCalendarTitle">Appointments</h3>
+                    <div class="appointment-calendar-navigation">
+                        <button type="button" class="secondary-btn" onclick="changeAppointmentCalendarMonth(-1)" aria-label="Previous month">‹</button>
+                        <h3 id="appointmentCalendarMonth"></h3>
+                        <button type="button" class="secondary-btn" onclick="changeAppointmentCalendarMonth(1)" aria-label="Next month">›</button>
+                    </div>
+                </div>
+                <p id="appointmentCalendarStatus" class="muted" aria-live="polite"></p>
+                <div id="appointmentCalendar" class="appointment-calendar" aria-label="Monthly appointment calendar"></div>
+            </div>
+
+            <div id="911ChartTab" class="resident-tab" style="display:none;">
+                <div class="section-header-row">
+                    <h3>911 Chart</h3>
+                    <div class="section-header-row-actions">
+                        <button id="resident911PrintButton" class="secondary-btn" onclick="printResident911Chart()">Print</button>
+                        <button id="resident911EditButton" class="primary-btn" onclick="openResident911ChartEditModal()" style="display:none;">Edit 911 Chart</button>
+                    </div>
+                </div>
+                <div id="resident911ChartContainer" class="resident-911-chart">
+                    <p class="muted">Loading 911 chart...</p>
                 </div>
             </div>
 
@@ -504,6 +555,33 @@
     </div>
 </div>
 
+<div id="resident911ChartEditModal" class="modal-backdrop" style="display:none;">
+    <div class="modal">
+        <div class="modal-header">
+            <h2>Edit 911 Chart</h2>
+            <button class="icon-btn" onclick="closeResident911ChartEditModal()">✕</button>
+        </div>
+        <form id="resident911ChartEditForm" class="form-grid">
+            <div class="form-group full-width">
+                <label for="resident911Diagnoses">Diagnoses</label>
+                <textarea id="resident911Diagnoses" rows="4"></textarea>
+            </div>
+            <div class="form-group full-width">
+                <label for="resident911Allergies">Allergies</label>
+                <textarea id="resident911Allergies" rows="3"></textarea>
+            </div>
+            <div class="form-group full-width">
+                <label for="resident911Poa">POA / Emergency Contact</label>
+                <input id="resident911Poa" type="text" placeholder="Name and contact details">
+            </div>
+            <div class="form-actions full-width">
+                <button type="button" class="secondary-btn" onclick="closeResident911ChartEditModal()">Cancel</button>
+                <button type="submit" class="primary-btn">Save 911 Chart</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <div id="heldReasonModal" class="modal-backdrop" style="display:none;">
     <div class="modal">
         <div class="modal-header">
@@ -564,6 +642,36 @@
             <div class="form-actions full-width">
                 <button type="button" class="secondary-btn" onclick="closeDashboardEditModal()">Cancel</button>
                 <button type="submit" class="primary-btn">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="appointmentModal" class="modal-backdrop" style="display:none;">
+    <div class="modal">
+        <div class="modal-header">
+            <h2 id="appointmentModalHeading">Add Appointment</h2>
+            <button type="button" class="icon-btn" onclick="closeAppointmentModal()" aria-label="Close">✕</button>
+        </div>
+        <form id="appointmentForm" class="form-grid">
+            <input id="appointmentDate" type="hidden">
+            <div class="form-group full-width">
+                <label for="appointmentType">Appointment type</label>
+                <input id="appointmentType" type="text" maxlength="100" required placeholder="e.g. Doctor visit">
+            </div>
+            <div class="form-group full-width">
+                <label for="appointmentDescription">Description</label>
+                <textarea id="appointmentDescription" rows="3" maxlength="2000" required placeholder="Add details about the appointment"></textarea>
+            </div>
+            <div class="form-group">
+                <label for="appointmentTime">Time</label>
+                <input id="appointmentTime" type="time" required>
+            </div>
+            <div id="appointmentFormError" class="error-text full-width" style="display:none;" role="alert"></div>
+            <div class="form-actions full-width">
+                <button type="button" class="secondary-btn" onclick="closeAppointmentModal()">Cancel</button>
+                <button id="deleteAppointmentButton" type="button" class="secondary-btn" onclick="deleteResidentAppointment()" style="display:none;">Delete</button>
+                <button id="saveAppointmentButton" type="submit" class="primary-btn">Save Appointment</button>
             </div>
         </form>
     </div>

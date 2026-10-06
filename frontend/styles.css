@@ -285,6 +285,31 @@ body {
     flex-wrap: wrap;
 }
 
+.medpass-resident-search {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: min(280px, 100%);
+    color: #cbd5e1;
+    font-size: 14px;
+}
+
+.medpass-resident-search input {
+    width: 100%;
+    padding: 8px 12px;
+    color: #e5e7eb;
+    background: #020617;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    font: inherit;
+}
+
+.medpass-resident-search input:focus {
+    outline: none;
+    border-color: #38bdf8;
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.16);
+}
+
 .medpass-toggle {
     display: inline-flex;
     align-items: center;
@@ -311,6 +336,10 @@ body {
     background: #111827;
     border-color: #0ea5e9;
     color: #e5e7eb;
+}
+
+.medpass-hidden-content {
+    display: none !important;
 }
 
 .medpass-census {
@@ -384,14 +413,15 @@ body {
 
 .medpass-resident-grid {
     margin-top: 0;
-    grid-template-columns: repeat(10, minmax(170px, 1fr));
-    grid-auto-rows: minmax(120px, auto);
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    grid-auto-rows: minmax(90px, auto);
     gap: 12px;
     align-items: stretch;
 }
 
 .medpass-resident-card {
     position: relative;
+    min-height: 160px;
 }
 
 .medpass-resident-card.selected {
@@ -407,19 +437,19 @@ body {
 
 @media (max-width: 1800px) {
     .medpass-resident-grid {
-        grid-template-columns: repeat(6, minmax(170px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
     }
 }
 
 @media (max-width: 1200px) {
     .medpass-resident-grid {
-        grid-template-columns: repeat(4, minmax(160px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
     }
 }
 
 @media (max-width: 800px) {
     .medpass-resident-grid {
-        grid-template-columns: repeat(2, minmax(150px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     }
 }
 
@@ -489,48 +519,194 @@ body {
 
 .resident-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
     gap: 12px;
     margin-top: 10px;
 }
 
-.resident-card {
-    background: #020617;
-    border-radius: 10px;
-    border: 1px solid #111827;
-    padding: 12px;
-    cursor: pointer;
-    transition: transform 0.1s ease, box-shadow 0.1s ease, border-color 0.1s ease;
+.medication-directory {
+    display: grid;
+    grid-template-columns: minmax(260px, 0.9fr) minmax(0, 1.1fr);
+    gap: 16px;
+    align-items: start;
 }
 
-.resident-card:hover {
+@media (max-width: 800px) {
+    .medication-directory {
+        grid-template-columns: 1fr;
+    }
+}
+
+.medication-residents-panel,
+.medication-list-panel {
+    min-width: 0;
+    padding: 16px;
+    background: rgba(2, 6, 23, 0.72);
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+}
+
+.medication-directory-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.medication-directory-heading h3,
+.medication-list-panel h3 {
+    font-size: 16px;
+}
+
+.medication-search input {
+    width: 100%;
+    padding: 10px 12px;
+    color: #e5e7eb;
+    background: #020617;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    font: inherit;
+}
+
+.medication-search input:focus {
+    outline: none;
+    border-color: #38bdf8;
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.16);
+}
+
+.medication-resident-grid {
+    grid-template-columns: 1fr;
+}
+
+.medication-resident-card {
+    min-height: 92px;
+    border-radius: 16px;
+    font: inherit;
+}
+
+.medication-resident-card.selected {
+    border-color: #38bdf8;
+    box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+.resident-card-body-name {
+    color: #0f172a;
+    font-size: 15px;
+    font-weight: 800;
+    line-height: 1.2;
+}
+
+.medication-empty-state {
+    grid-column: 1 / -1;
+    padding: 12px 4px;
+}
+
+.medication-list-panel > .muted {
+    margin-top: 12px;
+}
+
+.medication-list-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.medication-list-heading #residentMedicationRoom:empty {
+    display: none;
+}
+
+.medication-directory-card {
+    align-items: flex-start;
+}
+
+.medication-instructions {
+    margin-top: 4px;
+    color: #9ca3af;
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.resident-card {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    width: 100%;
+    min-height: 118px;
+    background: linear-gradient(90deg, #f8fafc 0%, #e2e8f0 100%);
+    border: 2px solid #cbd5e1;
+    border-radius: 999px;
+    padding: 6px 10px 6px 6px;
+    overflow: hidden;
+    cursor: pointer;
+    text-align: left;
+    color: #0f172a;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+    position: relative;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.resident-card::before {
+    content: "";
+    position: absolute;
+    left: 10px;
+    top: 10px;
+    bottom: 10px;
+    width: 8px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #2563eb, #60a5fa);
+    opacity: 0.9;
+}
+
+.resident-card:hover,
+.resident-card:focus-visible {
     transform: translateY(-2px);
-    box-shadow: 0 10px 25px rgba(15, 23, 42, 0.7);
-    border-color: #1d4ed8;
+    box-shadow: 0 12px 24px rgba(37, 99, 235, 0.22);
+    border-color: #60a5fa;
+    outline: none;
 }
 
 /* Resident card thumbnail layout */
 .resident-card-row {
     display: flex;
-    gap: 12px;
+    flex-direction: row;
     align-items: center;
+    min-height: 100%;
+    width: 100%;
+    padding-left: 18px;
+    gap: 10px;
 }
 
 .resident-thumb {
-    width: 56px;
-    height: 56px;
-    border-radius: 8px;
+    width: 62px;
+    height: 62px;
+    border-radius: 14px;
     object-fit: cover;
-    border: 1px solid #111827;
-    background: #0b1220;
-    flex: 0 0 56px;
+    object-position: center;
+    border: 1px solid #94a3b8;
+    background: #cbd5e1;
+    flex: 0 0 auto;
 }
 
 .resident-card-body {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    flex: 1 1 auto;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 3px;
+    padding: 8px 8px 8px 0;
+    flex: 1;
+    background: transparent;
 }
 
 .resident-code {
@@ -539,14 +715,21 @@ body {
 }
 
 .resident-card.due {
-    border-color: #16a34a;
-    box-shadow: 0 8px 30px rgba(34,197,94,0.12);
-    transform: translateY(-3px);
+    border-color: #22c55e;
+    box-shadow: 0 12px 28px rgba(34, 197, 94, 0.18);
+}
+
+.resident-card.due::before {
+    background: linear-gradient(90deg, #16a34a, #4ade80);
 }
 
 .resident-card.no-due {
-    opacity: 0.55;
-    filter: grayscale(40%);
+    opacity: 0.75;
+    filter: grayscale(20%);
+}
+
+.resident-card.no-due::before {
+    background: linear-gradient(90deg, #64748b, #cbd5e1);
 }
 
 .med-card.muted-med {
@@ -558,6 +741,27 @@ body {
     justify-content: space-between;
     align-items: center;
     gap: 8px;
+    width: 100%;
+}
+
+.resident-card-header h3,
+.resident-card-body h3,
+.card-header h3 {
+    font-size: 15px;
+    font-weight: 800;
+    line-height: 1.2;
+    letter-spacing: 0.02em;
+    color: #0f172a;
+    margin: 0;
+}
+
+.resident-card-header .secondary-btn {
+    background: transparent;
+    border: 1px solid #334155;
+    color: #0f172a;
+    border-radius: 999px;
+    padding: 6px 10px;
+    font-size: 12px;
 }
 
 .card-header {
@@ -662,6 +866,7 @@ body {
     display: flex;
     gap: 8px;
     margin-bottom: 12px;
+    flex-wrap: wrap;
 }
 
 .resident-tabs button {
@@ -675,6 +880,143 @@ body {
     border: 1px solid #111827;
 }
 
+.resident-911-chart {
+    background: #fff;
+    color: #0f172a;
+    border: 1px solid #dbe3ee;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+}
+
+.resident-911-chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 2px solid #e2e8f0;
+    padding-bottom: 12px;
+    margin-bottom: 16px;
+}
+
+.resident-911-chart-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+}
+
+.resident-911-chart-section {
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 14px;
+    background: #f8fafc;
+}
+
+.resident-911-chart-section h4 {
+    margin-bottom: 8px;
+    font-size: 14px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #475569;
+}
+
+.resident-911-chart-section p,
+.resident-911-chart-section li {
+    color: #0f172a;
+    line-height: 1.6;
+}
+
+.resident-911-chart-section ul {
+    margin-left: 18px;
+}
+
+@media print {
+    body * {
+        visibility: hidden;
+    }
+
+    #residentProfile,
+    #residentProfile * {
+        visibility: visible;
+    }
+
+    #residentProfile {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        border: none;
+        background: white;
+        padding: 0;
+    }
+
+    .resident-tabs,
+    .section-header-row-actions,
+    #resident911EditButton,
+    #resident911PrintButton,
+    .resident-tab:not(#911ChartTab),
+    .resident-tab:not(#911ChartTab) * {
+        display: none !important;
+    }
+
+    #911ChartTab {
+        display: block !important;
+    }
+
+    .resident-911-chart {
+        box-shadow: none;
+        border: none;
+        padding: 0;
+        background: white;
+    }
+
+    body.print-medication-list #residentProfile,
+    body.print-medication-list #residentProfile * {
+        display: none !important;
+        visibility: hidden !important;
+    }
+
+    body.print-medication-list #residentMedicationPanel,
+    body.print-medication-list #residentMedicationPanel * {
+        visibility: visible;
+    }
+
+    body.print-medication-list #residentMedicationPanel {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        padding: 0;
+        border: none;
+        border-radius: 0;
+        color: #111827;
+        background: #fff;
+    }
+
+    body.print-medication-list #residentMedicationPanel h3,
+    body.print-medication-list #residentMedicationPanel p,
+    body.print-medication-list #residentMedicationPanel strong,
+    body.print-medication-list #residentMedicationPanel small {
+        color: #111827;
+    }
+
+    body.print-medication-list #printResidentMedicationButton {
+        display: none !important;
+    }
+
+    body.print-medication-list #residentMedicationList {
+        display: flex !important;
+        margin-top: 16px;
+    }
+
+    body.print-medication-list .medication-directory-card {
+        color: #111827;
+        background: #fff;
+        border: 1px solid #cbd5e1;
+        break-inside: avoid;
+    }
+}
+
 .resident-tabs button:hover {
     background: #111827;
     color: #e5e7eb;
@@ -684,6 +1026,142 @@ body {
     background: linear-gradient(135deg, #0ea5e9, #6366f1);
     color: #0b1120;
     border-color: transparent;
+}
+
+.appointment-calendar-heading {
+    align-items: center;
+}
+
+.appointment-calendar-navigation {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.appointment-calendar-navigation h3 {
+    min-width: 150px;
+    margin: 0;
+    text-align: center;
+}
+
+.appointment-calendar {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    border-top: 1px solid #334155;
+    border-left: 1px solid #334155;
+}
+
+.appointment-calendar-weekday {
+    padding: 10px 6px;
+    color: #cbd5e1;
+    background: #0f172a;
+    border-right: 1px solid #334155;
+    border-bottom: 1px solid #334155;
+    font-weight: 700;
+    text-align: center;
+}
+
+.appointment-calendar-day {
+    min-width: 0;
+    min-height: 120px;
+    padding: 6px;
+    background: #020617;
+    border-right: 1px solid #334155;
+    border-bottom: 1px solid #334155;
+}
+
+.appointment-calendar-day.outside-month {
+    background: #0b1120;
+    color: #64748b;
+}
+
+.appointment-calendar-day.today {
+    box-shadow: inset 0 0 0 2px #0ea5e9;
+}
+
+.appointment-calendar-day-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    min-height: 28px;
+    font-weight: 700;
+}
+
+.appointment-add-button {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid #38bdf8;
+    border-radius: 50%;
+    background: #0c4a6e;
+    color: #e0f2fe;
+    cursor: pointer;
+    font-size: 20px;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 120ms ease-in-out;
+}
+
+.appointment-calendar-day:hover .appointment-add-button,
+.appointment-add-button:focus-visible {
+    opacity: 1;
+}
+
+.appointment-calendar-item {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    gap: 2px;
+    margin-top: 5px;
+    padding: 6px;
+    border: 0;
+    overflow-wrap: anywhere;
+    border-left: 3px solid #38bdf8;
+    border-radius: 4px;
+    background: rgba(14, 165, 233, 0.14);
+    color: #e0f2fe;
+    cursor: pointer;
+    font-size: 12px;
+    text-align: left;
+}
+
+.appointment-calendar-item:hover,
+.appointment-calendar-item:focus-visible {
+    background: rgba(14, 165, 233, 0.28);
+    outline: 2px solid #38bdf8;
+    outline-offset: 1px;
+}
+
+.appointment-calendar-item:disabled {
+    cursor: default;
+    opacity: 0.8;
+}
+
+.appointment-calendar-item small {
+    color: #cbd5e1;
+}
+
+@media (max-width: 700px) {
+    .appointment-calendar-day {
+        min-height: 88px;
+        padding: 4px;
+    }
+
+    .appointment-calendar-weekday {
+        padding: 8px 2px;
+        font-size: 12px;
+    }
+
+    .appointment-calendar-item {
+        padding: 4px;
+        font-size: 10px;
+    }
+
+    .appointment-add-button {
+        width: 22px;
+        height: 22px;
+        opacity: 1;
+    }
 }
 
 .invoice-summary {

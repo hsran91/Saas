@@ -11,8 +11,16 @@ try {
 
 const API_BASE = window.location.protocol === "file:" ? "http://localhost:5000" : "";
 let residents = [];
+let residentCardsRenderVersion = 0;
 let currentResidentId = null;
+let residentAppointments = [];
+let appointmentCalendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+let appointmentCalendarMonthManuallyChanged = false;
+let editingAppointmentId = null;
+let selectedMedicationResidentId = null;
+let medicationResidentRequestVersion = 0;
 let currentUser = null;
+const resident911ChartStorageKey = "resident911Charts";
 const medicationDraftStatus = new Map();
 const medicationCache = new Map();
 let passFinalized = false;
@@ -48,8 +56,9 @@ function getCurrentTimeslot(now = new Date()) {
         'openPayInvoicePanel','closePayInvoicePanel','openAddInvoicePanel','closeAddInvoicePanel',
         'openAddAlertPanel','closeAddAlertPanel','openResidentProfile','deleteResident','payInvoice',
         'deleteMedication','startMedicationEdit','openPrnFollowupModal','closePrnFollowupModal',
-        'loadMedPassPage','setMedPassShift','onMedPassResidentChange','finalizeMedPassShift','toggleMedPassDueOnly',
-        'openMedPassResidentPage'
+        'loadMedPassPage','setMedPassShift','finalizeMedPassShift','toggleMedPassDueOnly',
+        'openMedPassResidentPage','printResidentMedicationList','openAppointmentModal',
+        'closeAppointmentModal','changeAppointmentCalendarMonth','deleteResidentAppointment','openPoaEvents'
     ];
 
     names.forEach(name => {
@@ -203,6 +212,8 @@ function updateRoleUI() {
     const badge = document.getElementById("currentUserRoleBadge");
     const logoutButton = document.getElementById("logoutButton");
     const dashboardNav = document.getElementById("nav-dashboard");
+    const residentsNav = document.getElementById("nav-residents");
+    const eventsNav = document.getElementById("nav-events");
     const billNav = document.getElementById("nav-billing");
     const medNav = document.getElementById("nav-meds");
     const medPassNav = document.getElementById("nav-medpass");
@@ -210,6 +221,8 @@ function updateRoleUI() {
     const registerNav = document.getElementById("nav-register");
     const addResidentBtn = document.getElementById("addResidentButton");
     const residentBillingTabButton = document.getElementById("residentBillingTabButton");
+    const residentAppointmentsTabButton = document.getElementById("residentAppointmentsTabButton");
+    const appointmentCalendarTitle = document.getElementById("appointmentCalendarTitle");
     const residentPayInvoiceButton = document.getElementById("residentPayInvoiceButton");
     const residentNewInvoiceButton = document.getElementById("residentNewInvoiceButton");
     const editQuickStatsButton = document.getElementById("editQuickStatsButton");
@@ -219,10 +232,14 @@ function updateRoleUI() {
         if (badge) badge.textContent = "";
         if (logoutButton) logoutButton.style.display = "none";
         if (billNav) billNav.style.display = "none";
+        if (residentsNav) residentsNav.style.display = "none";
+        if (eventsNav) eventsNav.style.display = "none";
         if (medPassNav) medPassNav.style.display = "none";
         if (registerNav) registerNav.style.display = "none";
         if (addResidentBtn) addResidentBtn.style.display = "none";
         if (residentBillingTabButton) residentBillingTabButton.style.display = "none";
+        if (residentAppointmentsTabButton) residentAppointmentsTabButton.style.display = "none";
+        if (appointmentCalendarTitle) appointmentCalendarTitle.textContent = "Appointments";
         if (residentPayInvoiceButton) residentPayInvoiceButton.style.display = "none";
         if (residentNewInvoiceButton) residentNewInvoiceButton.style.display = "none";
         if (editQuickStatsButton) editQuickStatsButton.style.display = "none";
@@ -239,6 +256,11 @@ function updateRoleUI() {
         if (registerNav) registerNav.style.display = "inline-block";
         if (addResidentBtn) addResidentBtn.style.display = "inline-block";
         if (residentBillingTabButton) residentBillingTabButton.style.display = "inline-block";
+        if (residentAppointmentsTabButton) {
+            residentAppointmentsTabButton.textContent = "Appointments";
+            residentAppointmentsTabButton.style.display = "inline-block";
+        }
+        if (appointmentCalendarTitle) appointmentCalendarTitle.textContent = "Appointments";
         if (residentPayInvoiceButton) residentPayInvoiceButton.style.display = "inline-block";
         if (residentNewInvoiceButton) residentNewInvoiceButton.style.display = "inline-block";
         if (editQuickStatsButton) editQuickStatsButton.style.display = "inline-block";
@@ -246,12 +268,19 @@ function updateRoleUI() {
         if (medPassNav) medPassNav.style.display = "block";
     } else if (currentUser.role === "poa") {
         if (dashboardNav) dashboardNav.style.display = "none";
+        if (residentsNav) residentsNav.style.display = "none";
+        if (eventsNav) eventsNav.style.display = "block";
         if (registerNav) registerNav.style.display = "none";
         if (billNav) billNav.style.display = "block";
         if (medNav) medNav.style.display = "none";
         if (medPassNav) medPassNav.style.display = "none";
         if (addResidentBtn) addResidentBtn.style.display = "none";
         if (residentBillingTabButton) residentBillingTabButton.style.display = "inline-block";
+        if (residentAppointmentsTabButton) {
+            residentAppointmentsTabButton.textContent = "Events";
+            residentAppointmentsTabButton.style.display = "inline-block";
+        }
+        if (appointmentCalendarTitle) appointmentCalendarTitle.textContent = "Events";
         if (residentPayInvoiceButton) residentPayInvoiceButton.style.display = "inline-block";
         if (residentNewInvoiceButton) residentNewInvoiceButton.style.display = "none";
         if (editQuickStatsButton) editQuickStatsButton.style.display = "none";
@@ -263,20 +292,31 @@ function updateRoleUI() {
         if (marNav) marNav.style.display = "none";
         const medsTabButton = document.getElementById("residentMedsTabButton");
         const marTabButton = document.getElementById("residentMarTabButton");
+        const chartTabButton = document.getElementById("resident911ChartTabButton");
         if (medsTabButton) medsTabButton.style.display = "none";
         if (marTabButton) marTabButton.style.display = "none";
+        if (chartTabButton) chartTabButton.style.display = "none";
         const medsTab = document.getElementById("medsTab");
         const marTab = document.getElementById("marTab");
         const billingTab = document.getElementById("billingTab");
+        const appointmentsTab = document.getElementById("appointmentsTab");
         if (medsTab) medsTab.style.display = "none";
         if (marTab) marTab.style.display = "none";
+        if (appointmentsTab) appointmentsTab.style.display = "none";
         if (billingTab) billingTab.style.display = "block";
     } else {
+        if (residentsNav) residentsNav.style.display = "block";
+        if (eventsNav) eventsNav.style.display = "none";
         if (registerNav) registerNav.style.display = "none";
         if (billNav) billNav.style.display = "none";
         if (medPassNav) medPassNav.style.display = ["medtech", "rn"].includes(currentUser.role) ? "block" : "none";
         if (addResidentBtn) addResidentBtn.style.display = currentUser.role === "medtech" || currentUser.role === "rn" ? "inline-block" : "none";
         if (residentBillingTabButton) residentBillingTabButton.style.display = currentUser.role === "poa" ? "inline-block" : "none";
+        if (residentAppointmentsTabButton) {
+            residentAppointmentsTabButton.textContent = "Appointments";
+            residentAppointmentsTabButton.style.display = "inline-block";
+        }
+        if (appointmentCalendarTitle) appointmentCalendarTitle.textContent = "Appointments";
         if (residentPayInvoiceButton) residentPayInvoiceButton.style.display = currentUser.role === "poa" ? "inline-block" : "none";
         if (residentNewInvoiceButton) residentNewInvoiceButton.style.display = "none";
         if (editQuickStatsButton) editQuickStatsButton.style.display = "none";
@@ -349,12 +389,27 @@ window.addEventListener("DOMContentLoaded", () => {
         logoutButton.addEventListener("click", logout);
     }
 
+    const medicationResidentSearch = document.getElementById("medicationResidentSearch");
+    if (medicationResidentSearch) {
+        medicationResidentSearch.addEventListener("input", renderMedicationResidentCards);
+    }
+
+    const medPassResidentSearch = document.getElementById("medPassResidentSearch");
+    if (medPassResidentSearch) {
+        medPassResidentSearch.addEventListener("input", populateMedPassResidentCards);
+    }
+
     const dashboardEditForm = document.getElementById("dashboardEditForm");
     if (dashboardEditForm) {
         dashboardEditForm.addEventListener("submit", function (e) {
             e.preventDefault();
             saveDashboardSettings();
         });
+    }
+
+    const appointmentForm = document.getElementById("appointmentForm");
+    if (appointmentForm) {
+        appointmentForm.addEventListener("submit", saveResidentAppointment);
     }
 
     const adminRegisterForm = document.getElementById("adminRegisterForm");
@@ -406,8 +461,11 @@ function closeDashboardEditModal() {
 
 async function loadResidentCards() {
     try {
+        const renderVersion = ++residentCardsRenderVersion;
         const data = await authFetch(`${API_BASE}/residents`);
-        residents = data || [];
+        if (renderVersion !== residentCardsRenderVersion) return;
+
+        residents = Array.isArray(data) ? data : [];
         const container = document.getElementById("residentList");
         if (!container) return;
 
@@ -423,7 +481,7 @@ async function loadResidentCards() {
         // For admin/medtech, fetch medications to determine due status
         const shouldCheckMeds = currentUser && (currentUser.role === "admin" || currentUser.role === "medtech");
 
-        await Promise.all(residents.map(async resident => {
+        const cards = await Promise.all(residents.map(async resident => {
             const card = document.createElement("div");
             card.classList.add("resident-card");
 
@@ -459,8 +517,11 @@ async function loadResidentCards() {
                 `;
 
             card.onclick = () => openResidentProfile(resident._id);
-            container.appendChild(card);
+            return card;
         }));
+
+        if (renderVersion !== residentCardsRenderVersion) return;
+        cards.forEach(card => container.appendChild(card));
     } catch (err) {
         console.error("Error loading residents:", err);
     }
@@ -473,6 +534,306 @@ async function ensureResidentsLoaded(force = false) {
     const data = await authFetch(`${API_BASE}/residents`);
     residents = Array.isArray(data) ? data : [];
     return residents;
+}
+
+async function loadMedicationResidents() {
+    const container = document.getElementById("medicationResidentList");
+    if (!container) return;
+
+    container.textContent = "Loading residents...";
+    try {
+        await ensureResidentsLoaded(true);
+        renderMedicationResidentCards();
+
+        const selectedResident = residents.find(resident => String(resident._id) === String(selectedMedicationResidentId));
+        if (selectedResident) {
+            loadResidentDirectoryMedications(selectedResident);
+        } else {
+            selectedMedicationResidentId = null;
+            const heading = document.getElementById("residentMedicationHeading");
+            const room = document.getElementById("residentMedicationRoom");
+            const prompt = document.getElementById("residentMedicationPrompt");
+            const list = document.getElementById("residentMedicationList");
+            const printButton = document.getElementById("printResidentMedicationButton");
+            if (heading) heading.textContent = "Resident medications";
+            if (room) room.textContent = "";
+            if (prompt) {
+                prompt.textContent = residents.length
+                    ? "Select a resident to view their medications."
+                    : "No residents are available.";
+                prompt.style.display = "block";
+            }
+            if (list) {
+                list.innerHTML = "";
+                list.style.display = "none";
+            }
+            if (printButton) printButton.disabled = true;
+        }
+    } catch (err) {
+        console.error("Error loading residents for medication directory:", err);
+        container.textContent = "Unable to load residents. Please try again.";
+    }
+}
+
+function renderMedicationResidentCards() {
+    const container = document.getElementById("medicationResidentList");
+    const searchInput = document.getElementById("medicationResidentSearch");
+    if (!container) return;
+
+    const query = (searchInput?.value || "").trim().toLocaleLowerCase();
+    const matchingResidents = residents.filter(resident => {
+        const name = `${resident.firstName || ""} ${resident.lastName || ""}`.toLocaleLowerCase();
+        const room = String(resident.roomNumber || "").toLocaleLowerCase();
+        const code = String(resident.residentCode || "").toLocaleLowerCase();
+        return !query || name.includes(query) || room.includes(query) || code.includes(query);
+    });
+
+    container.innerHTML = "";
+    if (!matchingResidents.length) {
+        const message = document.createElement("p");
+        message.className = "muted medication-empty-state";
+        message.textContent = residents.length ? "No residents match your search." : "No residents are available.";
+        container.appendChild(message);
+        return;
+    }
+
+    matchingResidents.forEach(resident => {
+        const name = `${resident.firstName || ""} ${resident.lastName || ""}`.trim() || "Resident";
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "resident-card medication-resident-card";
+        card.setAttribute("aria-pressed", String(String(selectedMedicationResidentId) === String(resident._id)));
+        if (String(selectedMedicationResidentId) === String(resident._id)) {
+            card.classList.add("selected");
+        }
+
+        card.innerHTML = `
+            <span class="resident-card-row">
+                <img class="resident-thumb" src="${escapeHtml(resolveResidentPhotoUrl(resident.photoUrl))}" alt="">
+                <span class="resident-card-body">
+                    <span class="resident-card-body-name">${escapeHtml(name)}</span>
+                    <span class="muted">Room ${escapeHtml(resident.roomNumber || "-")}</span>
+                </span>
+            </span>
+        `;
+        const photo = card.querySelector(".resident-thumb");
+        if (photo) {
+            photo.alt = name;
+            photo.addEventListener("error", () => {
+                photo.src = "images/placeholder.svg";
+            }, { once: true });
+        }
+        card.addEventListener("click", () => {
+            selectedMedicationResidentId = String(resident._id);
+            renderMedicationResidentCards();
+            const printWindow = window.open("", "_blank");
+            if (!printWindow) {
+                window.alert("The printable medication list could not open because pop-ups are blocked. Allow pop-ups for this site and select the resident again.");
+            } else {
+                printWindow.opener = null;
+                renderPrintableMedicationPage(printWindow, resident);
+            }
+            loadResidentDirectoryMedications(resident, printWindow);
+        });
+        container.appendChild(card);
+    });
+}
+
+function renderPrintableMedicationPage(printWindow, resident, medications = null, error = null) {
+    if (!printWindow || printWindow.closed) return;
+
+    const printDocument = printWindow.document;
+    const name = `${resident.firstName || ""} ${resident.lastName || ""}`.trim() || "Resident";
+    printDocument.documentElement.lang = "en";
+    printDocument.title = `Medication List - ${name}`;
+
+    const style = printDocument.createElement("style");
+    style.textContent = `
+        @page { margin: 18mm; }
+        body { margin: 0; color: #111827; font: 14px Arial, sans-serif; }
+        main { max-width: 850px; margin: 32px auto; padding: 0 24px; }
+        header { border-bottom: 2px solid #111827; margin-bottom: 20px; padding-bottom: 12px; }
+        h1 { margin: 0 0 8px; font-size: 24px; }
+        p { margin: 4px 0; }
+        ul { list-style: none; margin: 0; padding: 0; }
+        li { border: 1px solid #cbd5e1; border-radius: 8px; margin: 0 0 12px; padding: 12px; break-inside: avoid; }
+        li strong { display: block; font-size: 16px; margin-bottom: 6px; }
+        li p { margin-top: 6px; }
+        .print-button { background: #0f172a; border: 0; border-radius: 6px; color: white; cursor: pointer; font: inherit; margin-bottom: 20px; padding: 10px 16px; }
+        .status { margin: 16px 0; }
+        @media print {
+            main { margin: 0; max-width: none; padding: 0; }
+            .print-button { display: none; }
+        }
+    `;
+    printDocument.head.replaceChildren(style);
+
+    const main = printDocument.createElement("main");
+    const header = printDocument.createElement("header");
+    const heading = printDocument.createElement("h1");
+    heading.textContent = "Medication List";
+    const residentName = printDocument.createElement("p");
+    residentName.textContent = name;
+    const room = printDocument.createElement("p");
+    room.textContent = `Room ${resident.roomNumber || "-"}`;
+    const printedDate = printDocument.createElement("p");
+    printedDate.textContent = `Prepared ${new Date().toLocaleDateString()}`;
+    header.append(heading, residentName, room, printedDate);
+    main.appendChild(header);
+
+    const printButton = printDocument.createElement("button");
+    printButton.type = "button";
+    printButton.className = "print-button";
+    printButton.textContent = "Print List";
+    printButton.disabled = !Array.isArray(medications) || !!error || medications.length === 0;
+    printButton.addEventListener("click", () => window.printResidentMedicationList(String(resident._id)));
+    main.appendChild(printButton);
+
+    const status = printDocument.createElement("p");
+    status.className = "status";
+    if (error) {
+        status.textContent = error;
+        main.appendChild(status);
+    } else if (!Array.isArray(medications)) {
+        status.textContent = "Loading medications...";
+        main.appendChild(status);
+    } else if (!medications.length) {
+        status.textContent = "No active medications on file for this resident.";
+        main.appendChild(status);
+    } else {
+        const list = printDocument.createElement("ul");
+        medications.forEach(medication => {
+            const item = printDocument.createElement("li");
+            const medicationName = printDocument.createElement("strong");
+            medicationName.textContent = medication.name || "Medication";
+            item.appendChild(medicationName);
+
+            const details = [];
+            if (medication.dosage) details.push(medication.dosage);
+            if (medication.route) details.push(medication.route);
+            if (medication.frequency) details.push(medication.frequency);
+            if (details.length) {
+                const detailText = printDocument.createElement("p");
+                detailText.textContent = details.join(" · ");
+                item.appendChild(detailText);
+            }
+
+            const times = Array.isArray(medication.times) && medication.times.length
+                ? medication.times.join(", ")
+                : medication.time;
+            if (times) {
+                const schedule = printDocument.createElement("p");
+                schedule.textContent = `Schedule: ${times}`;
+                item.appendChild(schedule);
+            }
+            if (medication.instructions) {
+                const instructions = printDocument.createElement("p");
+                instructions.textContent = medication.instructions;
+                item.appendChild(instructions);
+            }
+            list.appendChild(item);
+        });
+        main.appendChild(list);
+    }
+
+    printDocument.body.replaceChildren(main);
+}
+
+async function loadResidentDirectoryMedications(resident, printWindow = null) {
+    const requestVersion = ++medicationResidentRequestVersion;
+    const heading = document.getElementById("residentMedicationHeading");
+    const room = document.getElementById("residentMedicationRoom");
+    const prompt = document.getElementById("residentMedicationPrompt");
+    const list = document.getElementById("residentMedicationList");
+    const printButton = document.getElementById("printResidentMedicationButton");
+    if (!heading || !room || !prompt || !list) return;
+
+    heading.textContent = `${resident.firstName || ""} ${resident.lastName || ""}`.trim() || "Resident";
+    room.textContent = `Room ${resident.roomNumber || "-"}`;
+    prompt.textContent = "Loading medications...";
+    prompt.style.display = "block";
+    list.innerHTML = "";
+    list.style.display = "none";
+    if (printButton) printButton.disabled = true;
+
+    try {
+        const medications = await authFetch(`${API_BASE}/medications/${encodeURIComponent(resident._id)}`);
+        if (!Array.isArray(medications)) {
+            throw new Error("The medication response was not a list.");
+        }
+
+        const activeMedications = medications.filter(medication =>
+            !medication.status || String(medication.status).toLowerCase() === "active"
+        );
+        renderPrintableMedicationPage(printWindow, resident, activeMedications);
+        if (requestVersion !== medicationResidentRequestVersion) return;
+        if (!activeMedications.length) {
+            prompt.textContent = "No active medications on file for this resident.";
+            return;
+        }
+
+        activeMedications.forEach(medication => {
+            const item = document.createElement("li");
+            const card = document.createElement("div");
+            card.className = "med-card medication-directory-card";
+            const details = [];
+            if (medication.dosage) details.push(medication.dosage);
+            if (medication.route) details.push(medication.route);
+            if (medication.frequency) details.push(medication.frequency);
+            const times = Array.isArray(medication.times) && medication.times.length
+                ? medication.times.join(", ")
+                : medication.time;
+
+            const content = document.createElement("div");
+            content.className = "med-left";
+            const name = document.createElement("strong");
+            name.textContent = medication.name || "Medication";
+            content.appendChild(name);
+            if (details.length) {
+                const detailText = document.createElement("p");
+                detailText.textContent = details.join(" · ");
+                content.appendChild(detailText);
+            }
+            if (times) {
+                const timeText = document.createElement("small");
+                timeText.textContent = `Schedule: ${times}`;
+                content.appendChild(timeText);
+            }
+            if (medication.instructions) {
+                const instructions = document.createElement("p");
+                instructions.className = "medication-instructions";
+                instructions.textContent = medication.instructions;
+                content.appendChild(instructions);
+            }
+            card.appendChild(content);
+            item.appendChild(card);
+            list.appendChild(item);
+        });
+
+        prompt.style.display = "none";
+        list.style.display = "flex";
+        if (printButton) printButton.disabled = false;
+    } catch (err) {
+        console.error("Error loading resident medications:", err);
+        const errorMessage = "Unable to load this resident's medications. Please select the resident again to retry.";
+        renderPrintableMedicationPage(printWindow, resident, null, errorMessage);
+        if (requestVersion !== medicationResidentRequestVersion) return;
+        prompt.textContent = errorMessage;
+    }
+}
+
+function printResidentMedicationList(expectedResidentId = null) {
+    const list = document.getElementById("residentMedicationList");
+    if (expectedResidentId && String(selectedMedicationResidentId) !== expectedResidentId) {
+        window.alert("Please select this resident again before printing their medication list.");
+        return;
+    }
+    if (!selectedMedicationResidentId || !list || !list.children.length) return;
+    const clearPrintMode = () => document.body.classList.remove("print-medication-list");
+    window.addEventListener("afterprint", clearPrintMode, { once: true });
+    document.body.classList.add("print-medication-list");
+    window.print();
+    window.setTimeout(clearPrintMode, 1000);
 }
 
 function renderMedPassShiftButtons() {
@@ -559,6 +920,36 @@ function marScheduledTimeMatchesShift(scheduledTime, shift) {
     return isTimeInSlot(minutes, shift);
 }
 
+function isMedicationLateForShift(med, shift, now = new Date()) {
+    if (!med) return false;
+
+    const scheduledValues = [];
+    const medTimes = Array.isArray(med.times) ? med.times : [];
+    medTimes.forEach(timeValue => {
+        const minuteValue = parseTimeToMinutes(timeValue);
+        if (minuteValue != null && isTimeInSlot(minuteValue, shift)) {
+            scheduledValues.push(minuteValue);
+        }
+    });
+
+    if (med.time) {
+        const timeMinutes = parseTimeToMinutes(med.time);
+        if (timeMinutes != null && isTimeInSlot(timeMinutes, shift)) {
+            scheduledValues.push(timeMinutes);
+        }
+    }
+
+    if (!scheduledValues.length) return false;
+
+    const latestScheduledMinutes = Math.max(...scheduledValues);
+    const scheduledDate = new Date(now);
+    scheduledDate.setHours(0, 0, 0, 0);
+    scheduledDate.setHours(Math.floor(latestScheduledMinutes / 60), latestScheduledMinutes % 60, 0, 0);
+
+    const oneHourAfter = new Date(scheduledDate.getTime() + (60 * 60 * 1000));
+    return now >= oneHourAfter;
+}
+
 async function loadMedPassCensus(residentId, shift, dueCount = 0) {
     if (!residentId || !shift) {
         resetMedPassCensus();
@@ -566,18 +957,31 @@ async function loadMedPassCensus(residentId, shift, dueCount = 0) {
     }
 
     try {
-        const entries = await authFetch(`${API_BASE}/mar/${residentId}`);
+        const [entries, meds] = await Promise.all([
+            authFetch(`${API_BASE}/mar/${residentId}`),
+            authFetch(`${API_BASE}/medications/${residentId}`)
+        ]);
+
         const now = new Date();
+        const allMeds = Array.isArray(meds) ? meds : [];
+        const allEntries = Array.isArray(entries) ? entries : [];
         const dayStart = new Date(now);
         dayStart.setHours(0, 0, 0, 0);
 
-        const todaysShiftEntries = (Array.isArray(entries) ? entries : []).filter(entry => {
+        const todaysShiftEntries = allEntries.filter(entry => {
             const actual = new Date(entry.actualTime || entry.createdAt || 0);
             if (Number.isNaN(actual.getTime())) return false;
             if (actual < dayStart) return false;
             if (entry.status === "prn-followup") return false;
             return marScheduledTimeMatchesShift(entry.scheduledTime, shift);
         });
+
+        const givenMedIds = new Set(
+            todaysShiftEntries
+                .filter(entry => entry.status === "given")
+                .map(entry => String(entry.medicationId?._id || entry.medicationId))
+                .filter(Boolean)
+        );
 
         const uniqueMedIds = new Set();
         let held = 0;
@@ -596,9 +1000,27 @@ async function loadMedPassCensus(residentId, shift, dueCount = 0) {
 
         const chartedCount = uniqueMedIds.size;
         const dueRemaining = Math.max(0, Number(dueCount || 0) - chartedCount);
+        const lateCount = allMeds.filter(med => {
+            if (!medIsScheduledForSlot(med, shift)) return false;
+            if (givenMedIds.has(String(med._id))) return false;
+
+            const medTimes = Array.isArray(med.times) ? med.times : [];
+            const scheduledOptions = medTimes.length ? medTimes : [med.time].filter(Boolean);
+            const hasLateScheduledTime = scheduledOptions.some(timeValue => {
+                const minuteValue = parseTimeToMinutes(timeValue);
+                if (minuteValue == null || !isTimeInSlot(minuteValue, shift)) return false;
+                const scheduledDate = new Date(now);
+                scheduledDate.setHours(0, 0, 0, 0);
+                scheduledDate.setHours(Math.floor(minuteValue / 60), minuteValue % 60, 0, 0);
+                const oneHourAfter = new Date(scheduledDate.getTime() + (60 * 60 * 1000));
+                return now >= oneHourAfter;
+            });
+
+            return hasLateScheduledTime;
+        }).length;
 
         updateMedPassCensusUI({
-            due: dueRemaining,
+            due: lateCount || dueRemaining,
             completed,
             held,
             refused,
@@ -610,41 +1032,32 @@ async function loadMedPassCensus(residentId, shift, dueCount = 0) {
     }
 }
 
-function populateMedPassResidentSelect() {
-    const select = document.getElementById("medPassResidentSelect");
-    if (!select) return;
-
+function populateMedPassResidentCards() {
     const dueOnlyToggle = document.getElementById("medPassDueOnlyToggle");
     if (dueOnlyToggle) dueOnlyToggle.checked = medPassDueOnly;
 
-    const residentsForSelect = medPassDueOnly
+    const residentsForFilter = medPassDueOnly
         ? residents.filter(r => medPassDueResidentIds.has(String(r._id)))
         : residents;
 
-    select.innerHTML = `<option value="">Select a resident</option>`;
-    residentsForSelect.forEach(resident => {
-        const label = `${resident.firstName} ${resident.lastName} (${resident.roomNumber || "-"})`;
-        const dueTag = medPassDueResidentIds.has(String(resident._id)) ? " [DUE]" : "";
-        select.innerHTML += `<option value="${resident._id}">${escapeHtml(label + dueTag)}</option>`;
-    });
-
-    const residentExists = residentsForSelect.some(r => String(r._id) === String(medPassResidentId));
+    const residentExists = residentsForFilter.some(r => String(r._id) === String(medPassResidentId));
     if (!residentExists) {
         medPassResidentId = null;
     }
 
-    if (!medPassResidentId && residentsForSelect.length) {
-        medPassResidentId = residentsForSelect[0]._id;
+    if (!medPassResidentId && residentsForFilter.length) {
+        medPassResidentId = residentsForFilter[0]._id;
     }
 
-    select.value = medPassResidentId || "";
+    const searchInput = document.getElementById("medPassResidentSearch");
+    const query = (searchInput?.value || "").trim().toLocaleLowerCase();
+    const matchingResidents = residentsForFilter.filter(resident => {
+        const name = `${resident.firstName || ""} ${resident.lastName || ""}`.toLocaleLowerCase();
+        const room = String(resident.roomNumber || "").toLocaleLowerCase();
+        return !query || name.includes(query) || room.includes(query);
+    });
 
-    if (!residentsForSelect.length) {
-        select.innerHTML = `<option value="">No residents due this shift</option>`;
-        select.value = "";
-    }
-
-    renderMedPassResidentCards(residentsForSelect);
+    renderMedPassResidentCards(matchingResidents);
 }
 
 function renderMedPassResidentCards(residentsForCards) {
@@ -656,7 +1069,11 @@ function renderMedPassResidentCards(residentsForCards) {
     if (!Array.isArray(residentsForCards) || !residentsForCards.length) {
         const empty = document.createElement("p");
         empty.className = "muted";
-        empty.textContent = medPassDueOnly ? "No residents due in this shift." : "No residents available.";
+        const searchInput = document.getElementById("medPassResidentSearch");
+        const hasSearch = Boolean(searchInput?.value.trim());
+        empty.textContent = hasSearch
+            ? "No residents match your search."
+            : medPassDueOnly ? "No residents due in this shift." : "No residents available.";
         container.appendChild(empty);
         return;
     }
@@ -689,11 +1106,9 @@ function renderMedPassResidentCards(residentsForCards) {
 
         card.onclick = () => {
             medPassResidentId = resident._id;
-            const select = document.getElementById("medPassResidentSelect");
-            if (select) select.value = resident._id;
             setPassFinalized(false, "medpass-med-list", "medPassFinalizeButton");
             resetMedPassCensus();
-            renderMedPassResidentCards(residentsForCards);
+            populateMedPassResidentCards();
             loadMedPassResidentMeds();
             openMedPassResidentPage(resident._id, medPassShift || getCurrentTimeslot());
         };
@@ -705,7 +1120,7 @@ function renderMedPassResidentCards(residentsForCards) {
 function toggleMedPassDueOnly() {
     const checkbox = document.getElementById("medPassDueOnlyToggle");
     medPassDueOnly = Boolean(checkbox?.checked);
-    populateMedPassResidentSelect();
+    populateMedPassResidentCards();
     setPassFinalized(false, "medpass-med-list", "medPassFinalizeButton");
     resetMedPassCensus();
     loadMedPassResidentMeds();
@@ -733,21 +1148,8 @@ async function refreshMedPassShiftContext() {
         medPassResidentId = residents[0]._id;
     }
 
-    populateMedPassResidentSelect();
+    populateMedPassResidentCards();
     updateMedPassShiftBanner(medPassShift, dueResidents.length);
-}
-
-function onMedPassResidentChange() {
-    const select = document.getElementById("medPassResidentSelect");
-    medPassResidentId = select ? select.value : null;
-    setPassFinalized(false, "medpass-med-list", "medPassFinalizeButton");
-    resetMedPassCensus();
-    const residentsForCards = medPassDueOnly
-        ? residents.filter(r => medPassDueResidentIds.has(String(r._id)))
-        : residents;
-    renderMedPassResidentCards(residentsForCards);
-    loadMedPassResidentMeds();
-    openMedPassResidentPage(medPassResidentId, medPassShift || getCurrentTimeslot());
 }
 
 async function setMedPassShift(shift) {
@@ -780,30 +1182,16 @@ function loadMedPassResidentMeds() {
     const list = document.getElementById("medpass-med-list");
     if (!list) return;
 
+    list.innerHTML = "";
+    updateMedPassSummary("");
+    resetMedPassCensus();
+
     if (!medPassResidentId) {
-        list.innerHTML = "";
-        const message = medPassDueOnly
-            ? `No residents due for ${medPassShift || getCurrentTimeslot()} shift.`
-            : "Select a resident and shift to begin med pass.";
-        updateMedPassSummary(message);
-        resetMedPassCensus();
         return;
     }
 
-    const resident = residents.find(r => String(r._id) === String(medPassResidentId));
-    const residentName = resident ? `${resident.firstName} ${resident.lastName}`.trim() : "Selected resident";
-
-    loadMedications(medPassResidentId, { listId: "medpass-med-list", slot: medPassShift })
-        .then((stats) => {
-            if (!stats) return;
-            updateMedPassSummary(`${residentName} • Shift ${medPassShift} • ${stats.rendered} medication(s) ready.`);
-            loadMedPassCensus(medPassResidentId, medPassShift, stats.filtered);
-        })
-        .catch((err) => {
-            console.error("Error loading Med Pass medications:", err);
-            updateMedPassSummary("Unable to load medications for this resident and shift.");
-            resetMedPassCensus();
-        });
+    // Keep the Med Pass overview screen focused on resident cards only.
+    // Medication details load in the resident-specific med pass view instead.
 }
 
 function finalizeMedPassShift() {
@@ -898,6 +1286,9 @@ function showPage(pageId) {
     document.querySelectorAll(".nav-item").forEach(btn => btn.classList.remove("active-nav"));
     if (pageId === "dashboardPage") document.getElementById("nav-dashboard").classList.add("active-nav");
     if (pageId === "residentsPage") document.getElementById("nav-residents").classList.add("active-nav");
+    if (pageId === "residentsPage" && currentUser?.role === "poa" && document.getElementById("appointmentsTab")?.style.display !== "none") {
+        document.getElementById("nav-events").classList.add("active-nav");
+    }
     if (pageId === "medicationsPage") document.getElementById("nav-meds").classList.add("active-nav");
     if (pageId === "medPassPage") document.getElementById("nav-medpass").classList.add("active-nav");
     if (pageId === "marPage") document.getElementById("nav-mar").classList.add("active-nav");
@@ -911,7 +1302,26 @@ function showPage(pageId) {
 
     // When going to Residents page, refresh list
     if (pageId === "residentsPage") {
+        const residentsHeading = document.querySelector("#residentsPage .page-title");
+        const residentList = document.getElementById("residentList");
+        const residentHeader = document.querySelector("#residentsPage .page-header-row");
+        if (currentUser?.role === "poa") {
+            if (residentsHeading) residentsHeading.textContent = "Events";
+            if (residentHeader) residentHeader.style.display = "none";
+            if (residentList) residentList.style.display = "none";
+        } else {
+            if (residentsHeading) residentsHeading.textContent = "Residents";
+            if (residentHeader) residentHeader.style.display = "";
+            if (residentList) residentList.style.display = "";
+        }
         loadResidentCards();
+    } else {
+        const residentsHeading = document.querySelector("#residentsPage .page-title");
+        const residentHeader = document.querySelector("#residentsPage .page-header-row");
+        const residentList = document.getElementById("residentList");
+        if (residentsHeading) residentsHeading.textContent = "Residents";
+        if (residentHeader) residentHeader.style.display = "";
+        if (residentList) residentList.style.display = "";
     }
 
     if (pageId === "dashboardPage") {
@@ -925,6 +1335,7 @@ function showPage(pageId) {
             showPage("billingPage");
             return;
         }
+        loadMedicationResidents();
     }
     if (pageId === "medPassPage") {
         if (!currentUser || !["admin", "medtech", "rn"].includes(currentUser.role)) {
@@ -970,6 +1381,30 @@ function showPage(pageId) {
         loadGlobalAlerts();
     }
     // medpass audit nav removed
+}
+
+async function openPoaEvents() {
+    if (!currentUser || currentUser.role !== "poa" || !currentUser.residentId) {
+        window.alert("This Events calendar is only available to a linked POA account.");
+        return;
+    }
+
+    try {
+        await ensureResidentsLoaded(true);
+        const resident = residents.find(item => String(item._id) === String(currentUser.residentId));
+        if (!resident) {
+            throw new Error("The resident linked to this account could not be found.");
+        }
+
+        showPage("residentsPage");
+        openResidentProfile(String(resident._id));
+        showResidentTab("appointmentsTab");
+        document.querySelectorAll(".nav-item").forEach(button => button.classList.remove("active-nav"));
+        document.getElementById("nav-events")?.classList.add("active-nav");
+    } catch (err) {
+        console.error("Unable to open POA events calendar:", err);
+        window.alert(err.message || "Unable to open the Events calendar.");
+    }
 }
 
 // Default page
@@ -1081,7 +1516,9 @@ function saveNewResident() {
 
             closeAddResidentModal();
 
-            residents.push(savedResident);
+            if (savedResident && savedResident._id && !residents.some(resident => String(resident._id) === String(savedResident._id))) {
+                residents.push(savedResident);
+            }
             loadResidentCards();
             showPage("residentsPage");
         })
@@ -1101,11 +1538,137 @@ function saveNewResident() {
 // RESIDENT PROFILE
 // =========================
 
+function getResident911ChartEntry(residentId) {
+    try {
+        const raw = localStorage.getItem(resident911ChartStorageKey);
+        const charts = raw ? JSON.parse(raw) : {};
+        const entry = charts[String(residentId)] || {};
+        return {
+            diagnoses: entry.diagnoses || "Not entered",
+            allergies: entry.allergies || "No known allergies",
+            poa: entry.poa || "Not entered",
+        };
+    } catch (err) {
+        console.error("Error reading resident 911 chart data:", err);
+        return { diagnoses: "Not entered", allergies: "No known allergies", poa: "Not entered" };
+    }
+}
+
+function persistResident911ChartEntry(residentId, payload) {
+    try {
+        const raw = localStorage.getItem(resident911ChartStorageKey);
+        const charts = raw ? JSON.parse(raw) : {};
+        charts[String(residentId)] = {
+            ...charts[String(residentId)],
+            ...payload
+        };
+        localStorage.setItem(resident911ChartStorageKey, JSON.stringify(charts));
+    } catch (err) {
+        console.error("Error saving resident 911 chart data:", err);
+    }
+}
+
+async function renderResident911Chart() {
+    const container = document.getElementById("resident911ChartContainer");
+    const editButton = document.getElementById("resident911EditButton");
+    if (!container) return;
+
+    if (!currentResidentId) {
+        container.innerHTML = `<p class="muted">Select a resident to view the 911 chart.</p>`;
+        if (editButton) editButton.style.display = "none";
+        return;
+    }
+
+    const resident = residents.find(r => String(r._id) === String(currentResidentId));
+    const chartData = getResident911ChartEntry(currentResidentId);
+    const canEdit = currentUser && currentUser.role === "admin";
+
+    if (editButton) {
+        editButton.style.display = canEdit ? "inline-block" : "none";
+    }
+
+    try {
+        const meds = await authFetch(`${API_BASE}/medications/${currentResidentId}`);
+        const medicationList = Array.isArray(meds) && meds.length
+            ? meds.map(med => `
+                <li>
+                    ${med.name || "Medication"} — ${med.dosage || "—"}${med.route ? ` (${med.route})` : ""}
+                    ${med.frequency ? ` • ${med.frequency}` : ""}
+                    ${Array.isArray(med.times) && med.times.length ? ` • ${med.times.join(", ")}` : med.time ? ` • ${med.time}` : ""}
+                    ${med.instructions ? ` • ${med.instructions}` : ""}
+                </li>`).join("")
+            : "<li>No medications on file.</li>";
+
+        const allergies = resident?.allergies || chartData.allergies || "No known allergies";
+        const diagnoses = chartData.diagnoses || "Not entered";
+        const poa = chartData.poa || "Not entered";
+
+        container.innerHTML = `
+            <div class="resident-911-chart-header">
+                <div>
+                    <h3>${resident ? `${resident.firstName} ${resident.lastName}` : "Resident"}</h3>
+                    <p class="muted">Room ${resident?.roomNumber || "—"}</p>
+                </div>
+                <div class="muted">Emergency Medical Information</div>
+            </div>
+            <div class="resident-911-chart-grid">
+                <div class="resident-911-chart-section">
+                    <h4>Diagnoses</h4>
+                    <p>${escapeHtml(diagnoses).replace(/\n/g, "<br>")}</p>
+                </div>
+                <div class="resident-911-chart-section">
+                    <h4>Allergies</h4>
+                    <p>${escapeHtml(allergies).replace(/\n/g, "<br>")}</p>
+                </div>
+                <div class="resident-911-chart-section">
+                    <h4>POA / Emergency Contact</h4>
+                    <p>${escapeHtml(poa).replace(/\n/g, "<br>")}</p>
+                </div>
+                <div class="resident-911-chart-section" style="grid-column: 1 / -1;">
+                    <h4>Medications</h4>
+                    <ul>${medicationList}</ul>
+                </div>
+            </div>
+        `;
+    } catch (err) {
+        console.error("Error loading 911 chart:", err);
+        container.innerHTML = `<p class="muted">Unable to load the 911 chart right now.</p>`;
+    }
+}
+
+function openResident911ChartEditModal() {
+    if (!currentResidentId) return;
+
+    const chartData = getResident911ChartEntry(currentResidentId);
+    const diagnosesInput = document.getElementById("resident911Diagnoses");
+    const allergiesInput = document.getElementById("resident911Allergies");
+    const poaInput = document.getElementById("resident911Poa");
+    const modal = document.getElementById("resident911ChartEditModal");
+
+    if (diagnosesInput) diagnosesInput.value = chartData.diagnoses || "";
+    if (allergiesInput) allergiesInput.value = chartData.allergies || "";
+    if (poaInput) poaInput.value = chartData.poa || "";
+    if (modal) modal.style.display = "flex";
+}
+
+function closeResident911ChartEditModal() {
+    const modal = document.getElementById("resident911ChartEditModal");
+    if (modal) modal.style.display = "none";
+}
+
+function printResident911Chart() {
+    window.print();
+}
+
 function openResidentProfile(id) {
     currentResidentId = id;
 
     const resident = residents.find(r => r._id === id);
     if (!resident) return;
+    residentAppointments = [];
+    appointmentCalendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    appointmentCalendarMonthManuallyChanged = false;
+    renderAppointmentCalendar();
 
     const fullNameEl = document.getElementById("residentFullName");
     const roomEl = document.getElementById("residentRoom");
@@ -1153,6 +1716,8 @@ function openResidentProfile(id) {
     if (currentUser && ["admin", "poa"].includes(currentUser.role)) {
         loadBilling(id);
     }
+
+    renderResident911Chart();
 
     // control visibility of med pass buttons for admin/medtech only
     const finalizeBtn = document.getElementById("finalizePassButton");
@@ -1321,7 +1886,7 @@ function updateMedTimeButtons() {
 // =========================
 
 function showResidentTab(tabId) {
-    if (currentUser && currentUser.role === "poa" && tabId !== "billingTab") {
+    if (currentUser && currentUser.role === "poa" && !["billingTab", "appointmentsTab"].includes(tabId)) {
         tabId = "billingTab";
     }
 
@@ -1345,6 +1910,278 @@ function showResidentTab(tabId) {
 
     if (tabId === "billingTab" && currentResidentId) {
         loadBilling(currentResidentId);
+    }
+
+    if (tabId === "911ChartTab" && currentResidentId) {
+        renderResident911Chart();
+    }
+
+    if (tabId === "appointmentsTab" && currentResidentId) {
+        loadResidentAppointments(currentResidentId);
+    }
+}
+
+function getLocalDateKey(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+}
+
+function renderAppointmentCalendar() {
+    const calendar = document.getElementById("appointmentCalendar");
+    const monthHeading = document.getElementById("appointmentCalendarMonth");
+    if (!calendar || !monthHeading) return;
+
+    const year = appointmentCalendarMonth.getFullYear();
+    const month = appointmentCalendarMonth.getMonth();
+    monthHeading.textContent = appointmentCalendarMonth.toLocaleDateString(undefined, {
+        month: "long",
+        year: "numeric"
+    });
+    calendar.replaceChildren();
+
+    ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].forEach(day => {
+        const heading = document.createElement("div");
+        heading.className = "appointment-calendar-weekday";
+        heading.textContent = day;
+        calendar.appendChild(heading);
+    });
+
+    const firstWeekday = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const cellCount = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
+    const appointmentsByDate = new Map();
+    residentAppointments.forEach(appointment => {
+        const dateKey = typeof appointment.date === "string"
+            ? appointment.date.slice(0, 10)
+            : getLocalDateKey(new Date(appointment.date));
+        if (!appointmentsByDate.has(dateKey)) appointmentsByDate.set(dateKey, []);
+        appointmentsByDate.get(dateKey).push(appointment);
+    });
+
+    for (let index = 0; index < cellCount; index += 1) {
+        const dayNumber = index - firstWeekday + 1;
+        const inCurrentMonth = dayNumber >= 1 && dayNumber <= daysInMonth;
+        const cellDate = new Date(year, month, dayNumber);
+        const dateKey = getLocalDateKey(cellDate);
+        const cell = document.createElement("div");
+        cell.className = "appointment-calendar-day";
+        if (!inCurrentMonth) cell.classList.add("outside-month");
+        if (dateKey === getLocalDateKey(new Date())) cell.classList.add("today");
+
+        const dayHeading = document.createElement("div");
+        dayHeading.className = "appointment-calendar-day-heading";
+        const dayNumberLabel = document.createElement("span");
+        dayNumberLabel.textContent = String(cellDate.getDate());
+        dayHeading.appendChild(dayNumberLabel);
+        if (inCurrentMonth) {
+            const addButton = document.createElement("button");
+            addButton.type = "button";
+            addButton.className = "appointment-add-button";
+            addButton.textContent = "+";
+            addButton.title = `Add appointment on ${cellDate.toLocaleDateString()}`;
+            addButton.setAttribute("aria-label", `Add appointment on ${cellDate.toLocaleDateString()}`);
+            addButton.addEventListener("click", () => openAppointmentModal(dateKey));
+            dayHeading.appendChild(addButton);
+        }
+        cell.appendChild(dayHeading);
+
+        (appointmentsByDate.get(dateKey) || []).forEach(appointment => {
+            const item = document.createElement("button");
+            item.type = "button";
+            item.className = "appointment-calendar-item";
+            const canEdit = currentUser?.role !== "poa"
+                || String(appointment.createdBy) === String(currentUser.id);
+            item.title = canEdit ? "Click to edit event" : "You can only edit or delete events you created.";
+            item.setAttribute("aria-label", `${canEdit ? "Edit" : "View"} ${appointment.appointmentType} event at ${appointment.time}`);
+            const time = document.createElement("strong");
+            time.textContent = appointment.time;
+            const type = document.createElement("span");
+            type.textContent = appointment.appointmentType;
+            item.append(time, type);
+            item.addEventListener("click", () => openAppointmentModal(dateKey, appointment, canEdit));
+            cell.appendChild(item);
+        });
+        calendar.appendChild(cell);
+    }
+}
+
+async function loadResidentAppointments(residentId) {
+    const status = document.getElementById("appointmentCalendarStatus");
+    if (!status) return;
+    status.textContent = "Loading appointments...";
+
+    try {
+        const appointments = await authFetch(`${API_BASE}/appointments/${encodeURIComponent(residentId)}`);
+        if (String(residentId) !== String(currentResidentId)) return;
+        if (!Array.isArray(appointments)) {
+            throw new Error("The appointment response was not a list.");
+        }
+        residentAppointments = appointments;
+        const currentMonthKey = `${appointmentCalendarMonth.getFullYear()}-${String(appointmentCalendarMonth.getMonth() + 1).padStart(2, "0")}`;
+        const hasAppointmentsThisMonth = appointments.some(appointment => {
+            const dateKey = typeof appointment.date === "string"
+                ? appointment.date.slice(0, 10)
+                : getLocalDateKey(new Date(appointment.date));
+            return dateKey.slice(0, 7) === currentMonthKey;
+        });
+        if (currentUser?.role === "poa" && appointments.length && !hasAppointmentsThisMonth && !appointmentCalendarMonthManuallyChanged) {
+            const todayKey = getLocalDateKey(new Date());
+            const orderedAppointments = [...appointments].sort((left, right) => {
+                const leftDate = typeof left.date === "string" ? left.date.slice(0, 10) : getLocalDateKey(new Date(left.date));
+                const rightDate = typeof right.date === "string" ? right.date.slice(0, 10) : getLocalDateKey(new Date(right.date));
+                return `${leftDate}T${left.time}`.localeCompare(`${rightDate}T${right.time}`);
+            });
+            const nearestAppointment = orderedAppointments.find(appointment => {
+                const dateKey = typeof appointment.date === "string"
+                    ? appointment.date.slice(0, 10)
+                    : getLocalDateKey(new Date(appointment.date));
+                return dateKey >= todayKey;
+            }) || orderedAppointments[orderedAppointments.length - 1];
+            const appointmentDate = typeof nearestAppointment.date === "string"
+                ? nearestAppointment.date.slice(0, 10)
+                : getLocalDateKey(new Date(nearestAppointment.date));
+            const [appointmentYear, appointmentMonth] = appointmentDate.split("-").map(Number);
+            appointmentCalendarMonth = new Date(appointmentYear, appointmentMonth - 1, 1);
+        }
+        status.textContent = appointments.length
+            ? ""
+            : "No appointments scheduled. Select the + on a day to add one.";
+        renderAppointmentCalendar();
+    } catch (err) {
+        console.error("Error loading resident appointments:", err);
+        if (String(residentId) !== String(currentResidentId)) return;
+        status.textContent = "Unable to load appointments. Please reopen the Appointments tab to retry.";
+    }
+}
+
+function changeAppointmentCalendarMonth(offset) {
+    appointmentCalendarMonthManuallyChanged = true;
+    appointmentCalendarMonth = new Date(
+        appointmentCalendarMonth.getFullYear(),
+        appointmentCalendarMonth.getMonth() + offset,
+        1
+    );
+    renderAppointmentCalendar();
+}
+
+function openAppointmentModal(date, appointment = null, canEdit = true) {
+    const modal = document.getElementById("appointmentModal");
+    const dateInput = document.getElementById("appointmentDate");
+    const dateLabel = document.getElementById("appointmentModalHeading");
+    const error = document.getElementById("appointmentFormError");
+    const form = document.getElementById("appointmentForm");
+    if (!modal || !dateInput || !form) return;
+
+    editingAppointmentId = canEdit ? appointment?._id || null : null;
+    form.reset();
+    dateInput.value = date;
+    if (dateLabel) {
+        const heading = appointment ? (canEdit ? "Edit Appointment" : "Event Details") : "Add Appointment";
+        dateLabel.textContent = `${heading} - ${new Date(`${date}T00:00:00`).toLocaleDateString()}`;
+    }
+    const typeInput = document.getElementById("appointmentType");
+    const descriptionInput = document.getElementById("appointmentDescription");
+    const timeInput = document.getElementById("appointmentTime");
+    const saveButton = document.getElementById("saveAppointmentButton");
+    const cancelButton = form.querySelector(".form-actions button[type='button']");
+    typeInput.value = appointment?.appointmentType || "";
+    descriptionInput.value = appointment?.description || "";
+    timeInput.value = appointment?.time || "";
+    [typeInput, descriptionInput, timeInput].forEach(input => {
+        input.disabled = !canEdit;
+    });
+    saveButton.textContent = appointment ? "Save Changes" : "Save Appointment";
+    saveButton.style.display = canEdit ? "" : "none";
+    if (cancelButton) cancelButton.textContent = canEdit ? "Cancel" : "Close";
+    const deleteButton = document.getElementById("deleteAppointmentButton");
+    if (deleteButton) deleteButton.style.display = appointment && canEdit ? "inline-block" : "none";
+    if (error) {
+        error.textContent = "";
+        error.style.display = "none";
+    }
+    modal.style.display = "flex";
+    document.getElementById("appointmentType")?.focus();
+}
+
+function closeAppointmentModal() {
+    const modal = document.getElementById("appointmentModal");
+    const form = document.getElementById("appointmentForm");
+    if (modal) modal.style.display = "none";
+    if (form) form.reset();
+    editingAppointmentId = null;
+}
+
+async function saveResidentAppointment(event) {
+    event.preventDefault();
+    const error = document.getElementById("appointmentFormError");
+    const saveButton = document.getElementById("saveAppointmentButton");
+    if (!currentResidentId) return;
+    const residentId = currentResidentId;
+    const appointmentId = editingAppointmentId;
+
+    if (error) {
+        error.textContent = "";
+        error.style.display = "none";
+    }
+    if (saveButton) saveButton.disabled = true;
+
+    try {
+        const isEditing = Boolean(appointmentId);
+        await authFetch(isEditing
+            ? `${API_BASE}/appointments/${encodeURIComponent(appointmentId)}`
+            : `${API_BASE}/appointments`, {
+            method: isEditing ? "PATCH" : "POST",
+            body: JSON.stringify({
+                residentId,
+                date: document.getElementById("appointmentDate")?.value || "",
+                appointmentType: document.getElementById("appointmentType")?.value || "",
+                description: document.getElementById("appointmentDescription")?.value || "",
+                time: document.getElementById("appointmentTime")?.value || ""
+            })
+        });
+        closeAppointmentModal();
+        await loadResidentAppointments(residentId);
+    } catch (err) {
+        console.error("Error saving resident appointment:", err);
+        if (error) {
+            error.textContent = err.message || "Unable to save appointment.";
+            error.style.display = "block";
+        }
+    } finally {
+        if (saveButton) saveButton.disabled = false;
+    }
+}
+
+async function deleteResidentAppointment() {
+    if (!editingAppointmentId || !currentResidentId) return;
+    if (!window.confirm("Delete this appointment? This cannot be undone.")) return;
+
+    const residentId = currentResidentId;
+    const appointmentId = editingAppointmentId;
+    const deleteButton = document.getElementById("deleteAppointmentButton");
+    const error = document.getElementById("appointmentFormError");
+    if (deleteButton) deleteButton.disabled = true;
+    if (error) {
+        error.textContent = "";
+        error.style.display = "none";
+    }
+
+    try {
+        await authFetch(`${API_BASE}/appointments/${encodeURIComponent(appointmentId)}`, {
+            method: "DELETE"
+        });
+        closeAppointmentModal();
+        await loadResidentAppointments(residentId);
+    } catch (err) {
+        console.error("Error deleting resident appointment:", err);
+        if (error) {
+            error.textContent = err.message || "Unable to delete appointment.";
+            error.style.display = "block";
+        }
+    } finally {
+        if (deleteButton) deleteButton.disabled = false;
     }
 }
 
@@ -1712,18 +2549,34 @@ function normalizeMedStatus(status) {
 
 function parseTimeToMinutes(timeStr) {
     if (!timeStr) return null;
-    // accept HH:MM or H:MM AM/PM formats
-    const m24 = timeStr.match(/^(\d{1,2}):(\d{2})$/);
+
+    const raw = String(timeStr).trim();
+    if (!raw) return null;
+
+    const compact = raw.toUpperCase().replace(/\s+/g, "");
+
+    const m24 = compact.match(/^(\d{1,2}):(\d{2})$/);
     if (m24) return Number(m24[1]) * 60 + Number(m24[2]);
-    const m12 = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+
+    const m12 = compact.match(/^(\d{1,2}):?(\d{2})?(AM|PM)$/);
     if (m12) {
         let h = Number(m12[1]);
-        const mm = Number(m12[2]);
+        const mm = Number(m12[2] || 0);
         const ampm = m12[3].toUpperCase();
         if (ampm === "PM" && h !== 12) h += 12;
         if (ampm === "AM" && h === 12) h = 0;
         return h * 60 + mm;
     }
+
+    const mNoColon = compact.match(/^(\d{1,2})(AM|PM)$/);
+    if (mNoColon) {
+        let h = Number(mNoColon[1]);
+        const ampm = mNoColon[2];
+        if (ampm === "PM" && h !== 12) h += 12;
+        if (ampm === "AM" && h === 12) h = 0;
+        return h * 60;
+    }
+
     return null;
 }
 
@@ -2012,6 +2865,22 @@ if (heldReasonForm) {
             cancelHeldReasonPrompt();
             saveMedicationPass();
         }
+    });
+}
+
+const resident911ChartEditForm = document.getElementById("resident911ChartEditForm");
+if (resident911ChartEditForm) {
+    resident911ChartEditForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        if (!currentResidentId) return;
+
+        const diagnoses = document.getElementById("resident911Diagnoses")?.value.trim() || "Not entered";
+        const allergies = document.getElementById("resident911Allergies")?.value.trim() || "No known allergies";
+        const poa = document.getElementById("resident911Poa")?.value.trim() || "Not entered";
+
+        persistResident911ChartEntry(currentResidentId, { diagnoses, allergies, poa });
+        closeResident911ChartEditModal();
+        renderResident911Chart();
     });
 }
 
