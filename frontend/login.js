@@ -52,6 +52,8 @@ function login(event) {
         })
         .then(data => {
             saveToken(data.token);
+            localStorage.setItem("employeeSessionId", data.sessionId);
+            localStorage.setItem("employeeLastActivityAt", String(Date.now()));
             window.location.href = "index.html";
         })
         .catch(err => {

@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Employee Activity | eMAR</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="session-activity.js" defer></script>
+    <script src="employee-activity.js" defer></script>
+</head>
+<body>
+    <main class="employee-activity-page">
+        <header class="top-bar">
+            <h1>Employee Activity</h1>
+            <div class="employee-activity-actions">
+                <label class="employee-search-label" for="employeeSearch">Search employees</label>
+                <input id="employeeSearch" class="employee-search-input" type="search" placeholder="Search by name..." autocomplete="off">
+                <a class="secondary-btn employee-dashboard-link" href="index.html">Back to Dashboard</a>
+            </div>
+        </header>
+
+        <section class="page">
+            <h2 class="page-title">Employee Cards</h2>
+            <div class="card">
+                <p id="employeeDirectoryMessage" class="muted" role="status">Loading employee cards...</p>
+                <div id="employeeCardList" class="employee-card-grid"></div>
+            </div>
+
+            <div id="employeeSessionPanel" class="card employee-session-panel" style="display:none;">
+                <div class="card-header">
+                    <h3 id="employeeSessionTitle">Login history</h3>
+                    <button id="backToEmployeesButton" type="button" class="secondary-btn small-btn">Back to employee cards</button>
+                </div>
+                <p id="employeeSessionMessage" class="muted" role="status"></p>
+                <div id="employeeSessionList" class="employee-session-list"></div>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

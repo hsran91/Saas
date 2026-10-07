@@ -82,6 +82,8 @@ function saveToken(token) {
 
 function clearAuth() {
     localStorage.removeItem("authToken");
+    localStorage.removeItem("employeeSessionId");
+    localStorage.removeItem("employeeLastActivityAt");
     currentUser = null;
     window.location.href = "login.html";
 }
@@ -227,6 +229,7 @@ function updateRoleUI() {
     const residentNewInvoiceButton = document.getElementById("residentNewInvoiceButton");
     const editQuickStatsButton = document.getElementById("editQuickStatsButton");
     const editTodaysFocusButton = document.getElementById("editTodaysFocusButton");
+    const employeeActivityCard = document.getElementById("employeeActivityCard");
 
     if (!currentUser) {
         if (badge) badge.textContent = "";
@@ -244,11 +247,13 @@ function updateRoleUI() {
         if (residentNewInvoiceButton) residentNewInvoiceButton.style.display = "none";
         if (editQuickStatsButton) editQuickStatsButton.style.display = "none";
         if (editTodaysFocusButton) editTodaysFocusButton.style.display = "none";
+        if (employeeActivityCard) employeeActivityCard.style.display = "none";
         return;
     }
 
     if (badge) badge.textContent = `${currentUser.name || "User"} (${currentUser.role})`;
     if (logoutButton) logoutButton.style.display = "inline-block";
+    if (employeeActivityCard) employeeActivityCard.style.display = currentUser.role === "admin" ? "block" : "none";
 
     if (currentUser.role === "admin") {
         if (billNav) billNav.style.display = "block";
@@ -324,8 +329,33 @@ function updateRoleUI() {
     }
 }
 
-function logout() {
+async function logout() {
+    const token = getToken();
+    const sessionId = localStorage.getItem("employeeSessionId");
+    if (token && sessionId) {
+        try {
+            const tenantId = currentUser?.tenantId || parseJwt(token)?.tenantId;
+            const response = await fetch(`${API_BASE}/auth/logout`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
+                    ...(tenantId ? { "X-Tenant-Id": tenantId } : {})
+                },
+                body: JSON.stringify({ sessionId })
+            });
+            if (!response.ok) {
+                const payload = await response.json().catch(() => ({}));
+                throw new Error(payload.error || payload.message || "Unable to record logout time");
+            }
+        } catch (err) {
+            console.error("Unable to record employee logout:", err);
+            window.alert("Your account will be logged out, but the logout time could not be recorded. Please notify an administrator.");
+        }
+    }
     localStorage.removeItem("authToken");
+    localStorage.removeItem("employeeSessionId");
+    localStorage.removeItem("employeeLastActivityAt");
     window.location.href = "login.html";
 }
 

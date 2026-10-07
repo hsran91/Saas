@@ -6,6 +6,7 @@ const rateLimit = require("express-rate-limit");
 const auth = require("../middleware/auth");
 const User = require("../models/User");
 const Resident = require("../models/Resident");
+const EmployeeSession = require("../models/EmployeeSession");
 const { incrementLoginFailure } = require("../services/metrics");
 const { sendUserProvisionedEmail } = require("../services/email");
 const { logRequest } = require("../utils/logger");
@@ -177,10 +178,43 @@ router.post("/login", loginLimiter, async (req, res) => {
       authenticatedRole: user.role,
       tenantId: String(user.tenantId)
     });
-    res.json({ message: "Login successful", token, user, tenantId: String(user.tenantId) });
+    const session = await EmployeeSession.create({
+      tenantId: user.tenantId,
+      userId: user._id
+    });
+    res.json({
+      message: "Login successful",
+      token,
+      user,
+      tenantId: String(user.tenantId),
+      sessionId: String(session._id)
+    });
   } catch (err) {
     incrementLoginFailure("exception");
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/logout", auth, auth.requireRole("admin", "medtech", "rn", "poa"), async (req, res) => {
+  try {
+    const { sessionId } = req.body;
+    if (typeof sessionId !== "string" || !mongoose.Types.ObjectId.isValid(sessionId)) {
+      return res.status(400).json({ error: "A valid sessionId is required" });
+    }
+
+    const session = await EmployeeSession.findOneAndUpdate({
+      _id: sessionId,
+      tenantId: req.tenantId,
+      userId: req.user.id,
+      logoutAt: null
+    }, { $set: { logoutAt: new Date() } });
+
+    if (!session) {
+      return res.status(404).json({ error: "Active login session not found" });
+    }
+    return res.json({ message: "Logout recorded" });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
 });
 
