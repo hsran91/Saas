@@ -1,5 +1,34 @@
 const mongoose = require("mongoose");
 
+const PaymentHistorySchema = new mongoose.Schema({
+  amount: {
+    type: Number,
+    required: true,
+    min: 0,
+  },
+  paymentMethod: {
+    type: String,
+    enum: ["credit", "debit", "bank", "manual"],
+    default: "manual",
+  },
+  payerName: {
+    type: String,
+    default: "",
+  },
+  lastFour: {
+    type: String,
+    default: "",
+  },
+  paymentReference: {
+    type: String,
+    default: "",
+  },
+  paidAt: {
+    type: Date,
+    default: Date.now,
+  },
+}, { _id: false });
+
 const InvoiceSchema = new mongoose.Schema({
   tenantId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -20,6 +49,15 @@ const InvoiceSchema = new mongoose.Schema({
     type: Number,
     required: true,
     min: 0,
+  },
+  amountPaid: {
+    type: Number,
+    min: 0,
+    default: 0,
+  },
+  paymentHistory: {
+    type: [PaymentHistorySchema],
+    default: [],
   },
   dueDate: {
     type: Date,

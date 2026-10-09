@@ -1,11 +1,13 @@
 const express = require("express");
 const mongoose = require("mongoose");
+const crypto = require("crypto");
 const router = express.Router();
 const Invoice = require("../models/Invoice");
 const Resident = require("../models/Resident");
 const auth = require("../middleware/auth");
 const { getPagination, setPaginationHeaders } = require("../utils/pagination");
 const { logRequest, serializeError } = require("../utils/logger");
+const { runWriteTransaction } = require("../services/transactions");
 
 const ALLOWED_INVOICE_CREATE_FIELDS = new Set([
   "residentId",
@@ -19,6 +21,73 @@ const ALLOWED_INVOICE_CREATE_FIELDS = new Set([
 ]);
 
 const ALLOWED_PAYMENT_METHODS = new Set(["credit", "debit", "bank"]);
+const ALLOWED_BALANCE_PAYMENT_METHODS = new Set(["credit", "debit", "bank"]);
+const ALLOWED_BALANCE_PAYMENT_FIELDS = new Set(["amount", "paymentMethod", "payerName", "lastFour"]);
+
+function toCents(value) {
+  return Math.round(Number(value || 0) * 100);
+}
+
+function getInvoicePaidCents(invoice) {
+  if (Number(invoice.amountPaid) > 0) return toCents(invoice.amountPaid);
+  return invoice.status === "paid" ? toCents(invoice.amount) : 0;
+}
+
+function validateBalancePaymentPayload(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new Error("Request body must be an object");
+  }
+
+  const unsupportedFields = Object.keys(body).filter((key) => !ALLOWED_BALANCE_PAYMENT_FIELDS.has(key));
+  if (unsupportedFields.length) {
+    throw new Error(`Unsupported field(s): ${unsupportedFields.join(", ")}`);
+  }
+
+  const amount = Number(body.amount);
+  const paymentMethod = typeof body.paymentMethod === "string" ? body.paymentMethod.trim().toLowerCase() : "";
+  const payerName = normalizeOptionalText(body.payerName, "payerName", 120) || "";
+  const lastFour = typeof body.lastFour === "string" ? body.lastFour.trim() : "";
+
+  if (!Number.isFinite(amount) || amount <= 0 || !Number.isSafeInteger(toCents(amount)) || toCents(amount) <= 0 || Math.round(amount * 100) !== amount * 100) {
+    throw new Error("amount must be greater than zero and have no more than two decimal places");
+  }
+  if (!ALLOWED_BALANCE_PAYMENT_METHODS.has(paymentMethod)) {
+    throw new Error("paymentMethod must be credit, debit, or bank");
+  }
+  if (!payerName) {
+    throw new Error("payerName is required");
+  }
+  if (!/^\d{4}$/.test(lastFour)) {
+    throw new Error("lastFour must contain exactly four digits");
+  }
+
+  return { amountCents: toCents(amount), paymentMethod, payerName, lastFour };
+}
+
+function calculatePaymentAllocations(invoices, amountCents) {
+  let remainingCents = amountCents;
+  const allocations = [];
+
+  for (const invoice of invoices) {
+    if (remainingCents <= 0) break;
+    const invoiceBalanceCents = Math.max(0, toCents(invoice.amount) - getInvoicePaidCents(invoice));
+    if (!invoiceBalanceCents) continue;
+
+    const allocatedCents = Math.min(remainingCents, invoiceBalanceCents);
+    allocations.push({
+      invoice,
+      allocatedCents,
+      newPaidCents: getInvoicePaidCents(invoice) + allocatedCents
+    });
+    remainingCents -= allocatedCents;
+  }
+
+  if (remainingCents > 0) {
+    throw new Error("Payment amount cannot exceed the outstanding balance");
+  }
+
+  return allocations;
+}
 
 function normalizeOptionalText(value, fieldName, maxLength) {
   if (value == null) return undefined;
@@ -150,6 +219,78 @@ router.post("/", auth.requireRole("admin", "poa"), async (req, res) => {
   }
 });
 
+router.post("/:residentId/payments", auth.requireRole("admin"), async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.residentId)) {
+      return res.status(400).json({ error: "residentId must be a valid id" });
+    }
+
+    const payment = validateBalancePaymentPayload(req.body);
+    const paymentDate = new Date();
+    const paymentReference = `SIM-${paymentDate.getTime()}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
+    const result = await runWriteTransaction(async (session) => {
+      let invoiceQuery = Invoice.find({
+        tenantId: req.tenantId,
+        residentId: req.params.residentId,
+        status: "pending"
+      }).sort({ dueDate: 1, createdAt: 1, _id: 1 });
+      if (session) invoiceQuery = invoiceQuery.session(session);
+      const invoices = await invoiceQuery;
+      const outstandingCents = invoices.reduce((sum, invoice) => {
+        return sum + Math.max(0, toCents(invoice.amount) - getInvoicePaidCents(invoice));
+      }, 0);
+
+      if (!outstandingCents) {
+        const error = new Error("This client has no outstanding balance");
+        error.status = 400;
+        throw error;
+      }
+      if (payment.amountCents > outstandingCents) {
+        const error = new Error("Payment amount cannot exceed the outstanding balance");
+        error.status = 400;
+        throw error;
+      }
+
+      const allocations = [];
+      for (const allocation of calculatePaymentAllocations(invoices, payment.amountCents)) {
+        const { invoice, allocatedCents, newPaidCents } = allocation;
+        const invoiceTotalCents = toCents(invoice.amount);
+        invoice.amountPaid = newPaidCents / 100;
+        invoice.status = newPaidCents >= invoiceTotalCents ? "paid" : "pending";
+        invoice.paidAt = invoice.status === "paid" ? paymentDate : undefined;
+        invoice.paymentMethod = payment.paymentMethod;
+        invoice.payerName = payment.payerName;
+        invoice.paymentReference = paymentReference;
+        invoice.paymentHistory.push({
+          amount: allocatedCents / 100,
+          paymentMethod: payment.paymentMethod,
+          payerName: payment.payerName,
+          lastFour: payment.lastFour,
+          paymentReference,
+          paidAt: paymentDate
+        });
+        await invoice.save(session ? { session } : undefined);
+        allocations.push({ invoiceId: String(invoice._id), amount: allocatedCents / 100 });
+      }
+
+      return {
+        paymentReference,
+        amount: payment.amountCents / 100,
+        paymentMethod: payment.paymentMethod,
+        lastFour: payment.lastFour,
+        allocations,
+        remainingBalance: (outstandingCents - payment.amountCents) / 100
+      };
+    });
+
+    res.status(201).json(result);
+  } catch (err) {
+    const status = err.status || 400;
+    logRequest("error", req, "Balance payment simulation failed", { error: serializeError(err) });
+    res.status(status).json({ error: err.message });
+  }
+});
+
 // Get all invoices
 router.get("/", auth.requireRole("admin"), async (req, res) => {
   try {
@@ -205,8 +346,25 @@ router.patch("/:invoiceId/pay", auth.requireRole("admin", "poa"), async (req, re
       return res.status(403).json({ error: "Access denied" });
     }
 
+    const paidCents = getInvoicePaidCents(invoice);
+    const amountCents = toCents(invoice.amount);
+    const paidAt = new Date();
+    const paymentReference = `MANUAL-${Date.now()}`;
+    if (amountCents > paidCents) {
+      invoice.paymentHistory.push({
+        amount: (amountCents - paidCents) / 100,
+        paymentMethod: "manual",
+        payerName: req.user.name || "",
+        paymentReference,
+        paidAt
+      });
+    }
+    invoice.amountPaid = invoice.amount;
     invoice.status = "paid";
-    invoice.paidAt = new Date();
+    invoice.paymentMethod = "manual";
+    invoice.payerName = req.user.name || "";
+    invoice.paymentReference = paymentReference;
+    invoice.paidAt = paidAt;
     await invoice.save();
 
     res.json(invoice);
@@ -217,5 +375,7 @@ router.patch("/:invoiceId/pay", auth.requireRole("admin", "poa"), async (req, re
 
 module.exports = router;
 module.exports._test = {
-  validateAndNormalizeInvoiceCreatePayload
+  validateAndNormalizeInvoiceCreatePayload,
+  validateBalancePaymentPayload,
+  calculatePaymentAllocations
 };

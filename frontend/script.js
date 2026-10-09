@@ -13,6 +13,9 @@ const API_BASE = window.location.protocol === "file:" ? "http://localhost:5000" 
 let residents = [];
 let residentCardsRenderVersion = 0;
 let currentResidentId = null;
+let billingInvoices = [];
+let currentBillingResidentId = null;
+let invoiceResidentIdOverride = null;
 let residentAppointments = [];
 let appointmentCalendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let appointmentCalendarMonthManuallyChanged = false;
@@ -58,7 +61,9 @@ function getCurrentTimeslot(now = new Date()) {
         'deleteMedication','startMedicationEdit','openPrnFollowupModal','closePrnFollowupModal',
         'loadMedPassPage','setMedPassShift','finalizeMedPassShift','toggleMedPassDueOnly',
         'openMedPassResidentPage','printResidentMedicationList','openAppointmentModal',
-        'closeAppointmentModal','changeAppointmentCalendarMonth','deleteResidentAppointment','openPoaEvents'
+        'closeAppointmentModal','changeAppointmentCalendarMonth','deleteResidentAppointment','openPoaEvents',
+        'openBillingClient','renderBillingClientDetails','openBillingClientInvoicePanel','payBillingBalance',
+        'closeBillingPaymentModal'
     ];
 
     names.forEach(name => {
@@ -1322,7 +1327,7 @@ function showPage(pageId) {
     if (pageId === "medicationsPage") document.getElementById("nav-meds").classList.add("active-nav");
     if (pageId === "medPassPage") document.getElementById("nav-medpass").classList.add("active-nav");
     if (pageId === "marPage") document.getElementById("nav-mar").classList.add("active-nav");
-    if (pageId === "billingPage") document.getElementById("nav-billing").classList.add("active-nav");
+    if (pageId === "billingPage" || pageId === "billingClientPage") document.getElementById("nav-billing").classList.add("active-nav");
     if (pageId === "registerPage") document.getElementById("nav-register").classList.add("active-nav");
     if (pageId === "alertsPage") document.getElementById("nav-alerts").classList.add("active-nav");
 
@@ -1380,6 +1385,13 @@ function showPage(pageId) {
             return;
         }
         loadBillingPage();
+    }
+    if (pageId === "billingClientPage") {
+        if (!currentUser || currentUser.role !== "admin" || !currentBillingResidentId) {
+            showPage("billingPage");
+            return;
+        }
+        renderBillingClientDetails();
     }
     // medpass audit page removed
     if (pageId === "registerPage") {
@@ -2225,6 +2237,7 @@ function closeAddInvoicePanel() {
     if (panel) panel.style.display = "none";
     const form = document.getElementById("addInvoiceForm");
     if (form) form.reset();
+    invoiceResidentIdOverride = null;
 }
 
 function openPayInvoicePanel() {
@@ -2463,13 +2476,46 @@ function formatCurrency(amount) {
     return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount || 0);
 }
 
-function renderInvoiceListInContainer(container, invoices, showResident = false) {
+function getInvoicePaidAmount(invoice) {
+    const recordedAmount = Number(invoice.amountPaid);
+    if (recordedAmount > 0) return Math.min(Number(invoice.amount || 0), recordedAmount);
+    return invoice.status === "paid" ? Number(invoice.amount || 0) : 0;
+}
+
+function getInvoiceOutstandingAmount(invoice) {
+    return Math.max(0, Number(invoice.amount || 0) - getInvoicePaidAmount(invoice));
+}
+
+function getInvoicePaymentEntries(invoice) {
+    if (Array.isArray(invoice.paymentHistory) && invoice.paymentHistory.length) {
+        return invoice.paymentHistory.map(payment => ({
+            ...invoice,
+            amount: payment.amount,
+            status: "paid",
+            paymentMethod: payment.paymentMethod,
+            payerName: payment.payerName,
+            lastFour: payment.lastFour,
+            paymentReference: payment.paymentReference,
+            paidAt: payment.paidAt
+        }));
+    }
+    if (invoice.status === "paid") {
+        return [{
+            ...invoice,
+            amount: getInvoicePaidAmount(invoice),
+            paidAt: invoice.paidAt || invoice.updatedAt || invoice.createdAt
+        }];
+    }
+    return [];
+}
+
+function renderInvoiceListInContainer(container, invoices, showResident = false, emptyMessage = null) {
     if (!container) return;
 
     container.innerHTML = "";
 
     if (!invoices.length) {
-        container.innerHTML = `<p class="muted">No invoices yet. ${showResident ? "Use New Invoice to create one." : "Refresh to check for invoices."}</p>`;
+        container.innerHTML = `<p class="muted">${emptyMessage || `No invoices yet. ${showResident ? "Use New Invoice to create one." : "Refresh to check for invoices."}`}</p>`;
         return;
     }
 
@@ -2493,10 +2539,14 @@ function renderInvoiceListInContainer(container, invoices, showResident = false)
                 <p>Amount: <strong>${formatCurrency(invoice.amount)}</strong></p>
                 <p>Due: <strong>${dueDate}</strong></p>
             </div>
+            ${invoice.status === "pending" && getInvoicePaidAmount(invoice) > 0 ? `
+                <p class="muted">Paid so far: <strong>${formatCurrency(getInvoicePaidAmount(invoice))}</strong> · Balance due: <strong>${formatCurrency(getInvoiceOutstandingAmount(invoice))}</strong></p>
+            ` : ""}
             ${invoice.status === "paid" ? `
                 <div class="invoice-meta">
                     <p>Paid by: <strong>${invoice.payerName || "Unknown"}</strong></p>
                     <p>Method: <strong>${invoice.paymentMethod || "—"}</strong></p>
+                    ${invoice.lastFour ? `<p>Account ending in: <strong>${invoice.lastFour}</strong></p>` : ""}
                     ${invoice.paymentReference ? `<p>Ref: <strong>${invoice.paymentReference}</strong></p>` : ""}
                 </div>
             ` : ""}
@@ -2515,6 +2565,293 @@ function renderInvoiceList(invoices) {
 
 function renderBillingPageInvoices(invoices) {
     renderInvoiceListInContainer(document.getElementById("billingInvoiceList"), invoices, true);
+}
+
+async function fetchAllBillingPages(endpoint) {
+    const pageSize = 200;
+    const allItems = [];
+    let page = 1;
+
+    while (true) {
+        const items = await authFetch(`${endpoint}?limit=${pageSize}&page=${page}`);
+        if (!Array.isArray(items)) {
+            throw new Error("Unexpected response while loading billing data.");
+        }
+        allItems.push(...items);
+        if (items.length < pageSize) return allItems;
+        page += 1;
+    }
+}
+
+function getBillingMonthValue() {
+    const monthInput = document.getElementById("billingMonth");
+    if (!monthInput) return "";
+    if (!monthInput.value) {
+        const now = new Date();
+        monthInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    }
+    return monthInput.value;
+}
+
+function invoiceDateMatchesMonth(value, monthValue) {
+    if (!value || !/^\d{4}-\d{2}$/.test(monthValue)) return false;
+    const date = new Date(value);
+    const [year, month] = monthValue.split("-").map(Number);
+    return !Number.isNaN(date.getTime()) && date.getFullYear() === year && date.getMonth() + 1 === month;
+}
+
+function renderBillingClientCards() {
+    const container = document.getElementById("billingClientList");
+    if (!container) return;
+
+    const month = getBillingMonthValue();
+    const [year, monthNumber] = month.split("-").map(Number);
+    const monthLabel = new Date(year, monthNumber - 1, 1).toLocaleDateString([], { month: "long", year: "numeric" });
+    container.innerHTML = "";
+
+    if (!residents.length) {
+        container.innerHTML = `<p class="muted">No clients found.</p>`;
+        return;
+    }
+
+    residents.forEach(resident => {
+        const residentInvoices = billingInvoices.filter(invoice => {
+            const invoiceResidentId = invoice.residentId && typeof invoice.residentId === "object"
+                ? invoice.residentId._id
+                : invoice.residentId;
+            return String(invoiceResidentId) === String(resident._id);
+        });
+        const pending = residentInvoices.filter(invoice =>
+            invoice.status === "pending" && invoiceDateMatchesMonth(invoice.dueDate || invoice.createdAt, month)
+        );
+        const paid = residentInvoices.flatMap(getInvoicePaymentEntries).filter(invoice =>
+            invoiceDateMatchesMonth(invoice.paidAt || invoice.updatedAt || invoice.createdAt, month)
+        );
+
+        const residentName = `${resident.firstName || ""} ${resident.lastName || ""}`.trim() || "Unnamed client";
+        const pendingAmount = pending.reduce((sum, invoice) => sum + getInvoiceOutstandingAmount(invoice), 0);
+        const paidAmount = paid.reduce((sum, invoice) => sum + Number(invoice.amount || 0), 0);
+        const card = document.createElement("button");
+        card.type = "button";
+        card.classList.add("mar-resident-card", "billing-client-card");
+
+        const photo = document.createElement("img");
+        photo.src = resolveResidentPhotoUrl(resident.photoUrl);
+        photo.alt = residentName;
+        photo.onerror = () => {
+            photo.onerror = null;
+            photo.src = "images/placeholder.svg";
+        };
+
+        const body = document.createElement("div");
+        body.className = "mar-resident-card-body";
+        const name = document.createElement("div");
+        name.className = "mar-resident-card-name";
+        name.textContent = residentName;
+        const room = document.createElement("div");
+        room.className = "mar-resident-card-room";
+        room.textContent = `Room ${resident.roomNumber || "--"}`;
+        const monthSummary = document.createElement("div");
+        monthSummary.className = "mar-resident-card-count";
+        monthSummary.textContent = `${monthLabel} · ${pending.length} pending / ${paid.length} paid`;
+        const charges = document.createElement("div");
+        charges.className = "billing-client-charges";
+        charges.textContent = `${formatCurrency(pendingAmount)} pending · ${formatCurrency(paidAmount)} paid`;
+
+        body.append(name, room, monthSummary, charges);
+        card.append(photo, body);
+        card.addEventListener("click", () => openBillingClient(resident._id));
+        container.appendChild(card);
+    });
+}
+
+function openBillingClient(residentId) {
+    if (!currentUser || currentUser.role !== "admin" || !residentId) return;
+    currentBillingResidentId = String(residentId);
+    showPage("billingClientPage");
+}
+
+function openBillingClientInvoicePanel() {
+    if (!currentUser || currentUser.role !== "admin" || !currentBillingResidentId) return;
+    invoiceResidentIdOverride = currentBillingResidentId;
+    openAddInvoicePanel();
+}
+
+async function payBillingBalance() {
+    if (!currentUser || currentUser.role !== "admin" || !currentBillingResidentId) return;
+
+    const pendingInvoices = billingInvoices.filter(invoice => {
+        const invoiceResidentId = invoice.residentId && typeof invoice.residentId === "object"
+            ? invoice.residentId._id
+            : invoice.residentId;
+        return String(invoiceResidentId) === String(currentBillingResidentId) && invoice.status === "pending";
+    });
+    const balance = pendingInvoices.reduce((sum, invoice) => sum + getInvoiceOutstandingAmount(invoice), 0);
+    if (!pendingInvoices.length || balance <= 0) return;
+
+    const modal = document.getElementById("billingPaymentModal");
+    const amountInput = document.getElementById("billingPaymentAmount");
+    const payerInput = document.getElementById("billingPayerName");
+    if (!modal || !amountInput) return;
+
+    amountInput.max = balance.toFixed(2);
+    amountInput.value = balance.toFixed(2);
+    if (payerInput) payerInput.value = "";
+    updateBillingPaymentFields();
+    modal.style.display = "flex";
+    amountInput.focus();
+}
+
+function updateBillingPaymentFields() {
+    const method = document.getElementById("billingPaymentMethod")?.value;
+    const cardFields = document.getElementById("billingCardFields");
+    const achFields = document.getElementById("billingAchFields");
+    const cardInputs = cardFields?.querySelectorAll("input") || [];
+    const achInputs = achFields?.querySelectorAll("input, select") || [];
+    const useAch = method === "bank";
+
+    if (cardFields) cardFields.style.display = useAch ? "none" : "grid";
+    if (achFields) achFields.style.display = useAch ? "grid" : "none";
+    cardInputs.forEach(input => {
+        input.disabled = useAch;
+        input.required = !useAch;
+        input.value = "";
+    });
+    achInputs.forEach(input => {
+        input.disabled = !useAch;
+        input.required = useAch && input.id !== "billingAchAccountType";
+        input.value = "";
+    });
+}
+
+function closeBillingPaymentModal() {
+    const modal = document.getElementById("billingPaymentModal");
+    const form = document.getElementById("billingPaymentForm");
+    const error = document.getElementById("billingPaymentError");
+    if (modal) modal.style.display = "none";
+    if (form) form.reset();
+    if (error) {
+        error.textContent = "";
+        error.style.display = "none";
+    }
+    updateBillingPaymentFields();
+}
+
+async function submitBillingBalancePayment(event) {
+    event.preventDefault();
+    const errorBox = document.getElementById("billingPaymentError");
+    const submitButton = document.getElementById("submitBillingPaymentButton");
+    const form = document.getElementById("billingPaymentForm");
+    if (!form || !currentBillingResidentId) return;
+
+    const amount = Number(document.getElementById("billingPaymentAmount")?.value);
+    const method = document.getElementById("billingPaymentMethod")?.value;
+    const payerName = document.getElementById("billingPayerName")?.value.trim() || "";
+    let lastFour = "";
+    if (method === "bank") {
+        const routing = document.getElementById("billingAchRouting")?.value.trim() || "";
+        const account = document.getElementById("billingAchAccount")?.value.trim() || "";
+        if (!/^\d{9}$/.test(routing) || !/^\d{4,17}$/.test(account)) {
+            if (errorBox) {
+                errorBox.textContent = "Enter a 9-digit test routing number and a 4-17 digit test account number.";
+                errorBox.style.display = "block";
+            }
+            return;
+        }
+        lastFour = account.slice(-4);
+    } else {
+        const cardNumber = document.getElementById("billingCardNumber")?.value.replace(/[\s-]/g, "") || "";
+        const expiry = document.getElementById("billingCardExpiry")?.value || "";
+        const securityCode = document.getElementById("billingCardCvv")?.value || "";
+        if (!/^\d{13,19}$/.test(cardNumber) || !expiry || !/^\d{3,4}$/.test(securityCode)) {
+            if (errorBox) {
+                errorBox.textContent = "Enter valid test card number, expiration date, and security code.";
+                errorBox.style.display = "block";
+            }
+            return;
+        }
+        lastFour = cardNumber.slice(-4);
+    }
+
+    if (!Number.isFinite(amount) || amount <= 0 || !payerName) {
+        if (errorBox) {
+            errorBox.textContent = "Enter a valid payment amount and payer name.";
+            errorBox.style.display = "block";
+        }
+        return;
+    }
+
+    if (errorBox) {
+        errorBox.textContent = "";
+        errorBox.style.display = "none";
+    }
+    if (submitButton) submitButton.disabled = true;
+
+    try {
+        const result = await authFetch(`${API_BASE}/invoices/${encodeURIComponent(currentBillingResidentId)}/payments`, {
+            method: "POST",
+            body: JSON.stringify({
+                amount,
+                paymentMethod: method,
+                payerName,
+                lastFour
+            })
+        });
+        closeBillingPaymentModal();
+        await loadBillingPage();
+        window.alert(`Simulated payment recorded (${formatCurrency(result.amount)}). Reference: ${result.paymentReference}`);
+    } catch (err) {
+        console.error("Error recording simulated balance payment:", err);
+        if (errorBox) {
+            errorBox.textContent = err.message || "Unable to record simulated payment.";
+            errorBox.style.display = "block";
+        }
+    } finally {
+        if (submitButton) submitButton.disabled = false;
+    }
+}
+
+function renderBillingClientDetails() {
+    const resident = residents.find(item => String(item._id) === String(currentBillingResidentId));
+    const title = document.getElementById("billingClientTitle");
+    const summary = document.getElementById("billingClientSummary");
+    const overallBalance = document.getElementById("billingOverallBalance");
+    const pendingContainer = document.getElementById("billingPendingCharges");
+    const paidContainer = document.getElementById("billingPaidCharges");
+    const pendingTotal = document.getElementById("billingPendingTotal");
+    const paidTotal = document.getElementById("billingPaidTotal");
+    const payBalanceButton = document.getElementById("payBillingBalanceButton");
+    if (!resident || !summary || !pendingContainer || !paidContainer) return;
+
+    const month = getBillingMonthValue();
+    const [year, monthNumber] = month.split("-").map(Number);
+    const monthLabel = new Date(year, monthNumber - 1, 1).toLocaleDateString([], { month: "long", year: "numeric" });
+    if (title) title.textContent = `${resident.firstName || ""} ${resident.lastName || ""}`.trim() || "Client Billing";
+
+    const residentInvoices = billingInvoices.filter(invoice => {
+        const invoiceResidentId = invoice.residentId && typeof invoice.residentId === "object"
+            ? invoice.residentId._id
+            : invoice.residentId;
+        return String(invoiceResidentId) === String(resident._id);
+    });
+    const pending = residentInvoices.filter(invoice =>
+        invoice.status === "pending" && invoiceDateMatchesMonth(invoice.dueDate || invoice.createdAt, month)
+    );
+    const paid = residentInvoices.flatMap(getInvoicePaymentEntries).filter(invoice =>
+        invoiceDateMatchesMonth(invoice.paidAt || invoice.updatedAt || invoice.createdAt, month)
+    );
+    const pendingAmount = pending.reduce((sum, invoice) => sum + getInvoiceOutstandingAmount(invoice), 0);
+    const paidAmount = paid.reduce((sum, invoice) => sum + Number(invoice.amount || 0), 0);
+    const outstandingAmount = residentInvoices
+        .reduce((sum, invoice) => sum + getInvoiceOutstandingAmount(invoice), 0);
+
+    summary.textContent = `${monthLabel} · ${pending.length} pending charge${pending.length === 1 ? "" : "s"} (${formatCurrency(pendingAmount)}) · ${paid.length} paid charge${paid.length === 1 ? "" : "s"} (${formatCurrency(paidAmount)})`;
+    if (overallBalance) overallBalance.textContent = formatCurrency(outstandingAmount);
+    if (payBalanceButton) payBalanceButton.disabled = outstandingAmount <= 0;
+    if (pendingTotal) pendingTotal.textContent = formatCurrency(pendingAmount);
+    if (paidTotal) paidTotal.textContent = formatCurrency(paidAmount);
+    renderInvoiceListInContainer(pendingContainer, pending, false, "No pending charges for this month.");
+    renderInvoiceListInContainer(paidContainer, paid, false, "No paid charges for this month.");
 }
 
 function setResidentInvoiceCount(count) {
@@ -2635,23 +2972,47 @@ function loadBilling(residentId) {
         });
 }
 
-function loadBillingPage() {
-    if (!currentUser) return;
+async function loadBillingPage() {
+    if (!currentUser || !["admin", "poa"].includes(currentUser.role)) return;
 
-    const endpoint = currentUser.role === "poa"
-        ? `${API_BASE}/invoices/${currentUser.residentId}`
-        : `${API_BASE}/invoices`;
+    const clientContainer = document.getElementById("billingClientList");
+    const invoiceContainer = document.getElementById("billingInvoiceList");
+    if (currentUser.role === "admin") {
+        if (clientContainer) {
+            clientContainer.style.display = "grid";
+            clientContainer.innerHTML = `<p class="muted">Loading clients...</p>`;
+        }
+        if (invoiceContainer) invoiceContainer.style.display = "none";
+        try {
+            const [residentList, invoiceList] = await Promise.all([
+                fetchAllBillingPages(`${API_BASE}/residents`),
+                fetchAllBillingPages(`${API_BASE}/invoices`)
+            ]);
+            residents = residentList;
+            billingInvoices = invoiceList;
+            renderBillingClientCards();
+            setBillingPendingCount(invoiceList.filter(invoice => invoice.status === "pending").length);
+            if (document.getElementById("billingClientPage")?.style.display === "block") {
+                renderBillingClientDetails();
+            }
+        } catch (err) {
+            console.error("Error loading admin billing data:", err);
+            if (clientContainer) clientContainer.innerHTML = `<p class="muted">Unable to load client billing. Please refresh to try again.</p>`;
+        }
+        return;
+    }
 
-    authFetch(endpoint)
+    if (clientContainer) clientContainer.style.display = "none";
+    if (invoiceContainer) invoiceContainer.style.display = "grid";
+    authFetch(`${API_BASE}/invoices/${currentUser.residentId}`)
         .then(invoices => {
             const invoiceArray = Array.isArray(invoices) ? invoices : [];
             renderBillingPageInvoices(invoiceArray);
-            setBillingPendingCount(invoiceArray.filter(i => i.status === "pending").length);
+            setBillingPendingCount(invoiceArray.filter(invoice => invoice.status === "pending").length);
         })
         .catch(err => {
-            console.error("Error loading all invoices:", err);
-            const container = document.getElementById("billingInvoiceList");
-            if (container) container.innerHTML = `<p class="muted">Unable to load invoices.</p>`;
+            console.error("Error loading invoices:", err);
+            if (invoiceContainer) invoiceContainer.innerHTML = `<p class="muted">Unable to load invoices.</p>`;
         });
 }
 
@@ -2675,8 +3036,11 @@ async function payInvoice(invoiceId) {
             const error = await response.json().catch(() => ({}));
             throw new Error(error.error || "Unable to update invoice status");
         }
-        if (document.getElementById("billingPage")?.style.display === "block") {
-            loadBillingPage();
+        if (document.getElementById("billingClientPage")?.style.display === "block") {
+            await loadBillingPage();
+            renderBillingClientDetails();
+        } else if (document.getElementById("billingPage")?.style.display === "block") {
+            await loadBillingPage();
         }
         if (currentResidentId) {
             loadBilling(currentResidentId);
@@ -3156,13 +3520,14 @@ if (addInvoiceForm) {
     addInvoiceForm.addEventListener("submit", function (e) {
         e.preventDefault();
 
-        if (!currentResidentId) {
+        const residentId = invoiceResidentIdOverride || currentResidentId;
+        if (!residentId) {
             alert("No resident selected.");
             return;
         }
 
         const invoiceData = {
-            residentId: currentResidentId,
+            residentId,
             description: document.getElementById("invoiceDescription")?.value || "",
             amount: Number(document.getElementById("invoiceAmount")?.value || 0),
             dueDate: document.getElementById("invoiceDueDate")?.value || null,
@@ -3175,16 +3540,28 @@ if (addInvoiceForm) {
         })
             .then(() => {
                 closeAddInvoicePanel();
-                if (currentResidentId) {
-                    showResidentTab("billingTab");
-                    loadBilling(currentResidentId);
-                }
+            if (document.getElementById("billingClientPage")?.style.display === "block") {
+                loadBillingPage();
+            } else if (residentId === currentResidentId) {
+                showResidentTab("billingTab");
+                loadBilling(currentResidentId);
+            }
             })
             .catch(err => {
                 console.error("Error creating invoice:", err);
                 alert(err.message || "Unable to create invoice.");
             });
     });
+}
+
+const billingPaymentMethodSelect = document.getElementById("billingPaymentMethod");
+if (billingPaymentMethodSelect) {
+    billingPaymentMethodSelect.addEventListener("change", updateBillingPaymentFields);
+}
+
+const billingPaymentForm = document.getElementById("billingPaymentForm");
+if (billingPaymentForm) {
+    billingPaymentForm.addEventListener("submit", submitBillingBalancePayment);
 }
 
 const payInvoiceForm = document.getElementById("payInvoiceForm");

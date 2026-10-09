@@ -1254,6 +1254,23 @@ body {
 }
 
 @media (max-width: 700px) {
+    .billing-charge-columns {
+        grid-template-columns: 1fr;
+    }
+
+    .billing-detail-header {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .billing-month-picker input {
+        width: 100%;
+    }
+
+    .billing-payment-fields {
+        grid-template-columns: 1fr;
+    }
+
     .appointment-calendar-day {
         min-height: 88px;
         padding: 4px;
@@ -1286,6 +1303,109 @@ body {
 .invoice-list {
     display: grid;
     gap: 12px;
+}
+
+.billing-client-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 200px));
+    gap: 18px;
+    margin-top: 12px;
+    justify-content: flex-start;
+}
+
+.billing-client-card {
+    text-align: center;
+}
+
+.billing-client-charges {
+    color: #1d4ed8;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.billing-detail-header {
+    align-items: flex-end;
+    gap: 18px;
+}
+
+.billing-month-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    color: #9ca3af;
+    font-size: 13px;
+}
+
+.billing-month-picker input {
+    min-height: 40px;
+    padding: 8px 10px;
+    color: #e5e7eb;
+    background: #020617;
+    border: 1px solid #334155;
+    border-radius: 8px;
+}
+
+.billing-month-summary {
+    margin: 12px 0 18px;
+    color: #cbd5e1;
+}
+
+.billing-overall-balance {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    max-width: 360px;
+    padding: 16px 20px;
+    background: #0b1220;
+    border: 1px solid #1e3a5f;
+    border-radius: 12px;
+}
+
+.billing-overall-balance span {
+    color: #bfdbfe;
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.billing-overall-balance strong {
+    color: #f8fafc;
+    font-size: 28px;
+}
+
+.billing-overall-balance small {
+    color: #9ca3af;
+}
+
+.billing-balance-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.billing-balance-actions button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.billing-charge-columns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.billing-charge-section {
+    min-width: 0;
+}
+
+.billing-charge-total {
+    color: #bfdbfe;
+    white-space: nowrap;
 }
 
 .invoice-card {
@@ -1800,6 +1920,29 @@ body {
     padding: 16px 18px;
     width: 420px;
     max-width: 95vw;
+}
+
+.billing-payment-modal {
+    width: 620px;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.billing-simulation-notice {
+    margin-bottom: 14px;
+    padding: 10px 12px;
+    color: #fde68a;
+    background: rgba(120, 53, 15, 0.25);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.billing-payment-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 12px;
 }
 
 .modal-header {
