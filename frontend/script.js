@@ -35,6 +35,8 @@ let medPassShift = null;
 let pendingFinalizeContext = null;
 let medPassDueResidentIds = new Set();
 let medPassDueOnly = false;
+let careServices = [];
+let editingCareServiceId = null;
 
 const SHIFT_WINDOWS = {
     AM: { start: 6 * 60, end: 14 * 60, label: "06:00 - 14:00" },
@@ -63,7 +65,7 @@ function getCurrentTimeslot(now = new Date()) {
         'openMedPassResidentPage','printResidentMedicationList','openAppointmentModal',
         'closeAppointmentModal','changeAppointmentCalendarMonth','deleteResidentAppointment','openPoaEvents',
         'openBillingClient','renderBillingClientDetails','openBillingClientInvoicePanel','payBillingBalance',
-        'closeBillingPaymentModal'
+        'startStripeConnect','loadCareServices','editCareService','toggleCareService','cancelCareServiceEdit'
     ];
 
     names.forEach(name => {
@@ -235,6 +237,7 @@ function updateRoleUI() {
     const editQuickStatsButton = document.getElementById("editQuickStatsButton");
     const editTodaysFocusButton = document.getElementById("editTodaysFocusButton");
     const employeeActivityCard = document.getElementById("employeeActivityCard");
+    const merchantBillingSettings = document.getElementById("merchantBillingSettings");
 
     if (!currentUser) {
         if (badge) badge.textContent = "";
@@ -253,12 +256,14 @@ function updateRoleUI() {
         if (editQuickStatsButton) editQuickStatsButton.style.display = "none";
         if (editTodaysFocusButton) editTodaysFocusButton.style.display = "none";
         if (employeeActivityCard) employeeActivityCard.style.display = "none";
+        if (merchantBillingSettings) merchantBillingSettings.style.display = "none";
         return;
     }
 
     if (badge) badge.textContent = `${currentUser.name || "User"} (${currentUser.role})`;
     if (logoutButton) logoutButton.style.display = "inline-block";
     if (employeeActivityCard) employeeActivityCard.style.display = currentUser.role === "admin" ? "block" : "none";
+    if (merchantBillingSettings) merchantBillingSettings.style.display = currentUser.role === "admin" ? "block" : "none";
 
     if (currentUser.role === "admin") {
         if (billNav) billNav.style.display = "block";
@@ -1385,6 +1390,10 @@ function showPage(pageId) {
             return;
         }
         loadBillingPage();
+        if (currentUser.role === "admin") {
+            loadCareServices();
+            loadStripeConnectStatus();
+        }
     }
     if (pageId === "billingClientPage") {
         if (!currentUser || currentUser.role !== "admin" || !currentBillingResidentId) {
@@ -2228,6 +2237,8 @@ async function deleteResidentAppointment() {
 }
 
 function openAddInvoicePanel() {
+    populateInvoiceCareServices();
+    if (currentUser?.role === "admin") loadCareServices();
     const panel = document.getElementById("addInvoicePanel");
     if (panel) panel.style.display = "block";
 }
@@ -2237,7 +2248,136 @@ function closeAddInvoicePanel() {
     if (panel) panel.style.display = "none";
     const form = document.getElementById("addInvoiceForm");
     if (form) form.reset();
+    const description = document.getElementById("invoiceDescription");
+    const amount = document.getElementById("invoiceAmount");
+    if (description) description.readOnly = false;
+    if (amount) amount.readOnly = false;
     invoiceResidentIdOverride = null;
+}
+
+async function loadCareServices() {
+    if (!currentUser || currentUser.role !== "admin") return;
+    const container = document.getElementById("careServiceList");
+    try {
+        const services = await authFetch(`${API_BASE}/care-services`);
+        careServices = Array.isArray(services) ? services : [];
+        renderCareServices();
+        populateInvoiceCareServices();
+    } catch (err) {
+        console.error("Error loading care services:", err);
+        if (container) container.innerHTML = `<p class="muted">Unable to load care services: ${escapeHtml(err.message)}</p>`;
+    }
+}
+
+function renderCareServices() {
+    const container = document.getElementById("careServiceList");
+    if (!container) return;
+    const services = careServices || [];
+    if (!services.length) {
+        container.innerHTML = `<p class="muted">No care services yet. Add one above.</p>`;
+        return;
+    }
+    container.innerHTML = services.map(service => `
+        <div class="invoice-card">
+            <div class="invoice-row">
+                <div>
+                    <h4>${escapeHtml(service.name)}</h4>
+                    <p class="muted">${escapeHtml(service.description || "")}</p>
+                </div>
+                <div class="invoice-status ${service.active ? "paid" : "pending"}">${service.active ? "Active" : "Inactive"}</div>
+            </div>
+            <div class="invoice-row">
+                <p>Price: <strong>${formatCurrency(service.amount)}</strong></p>
+                <div class="invoice-actions">
+                    <button type="button" class="secondary-btn" onclick="editCareService('${service._id}')">Edit</button>
+                    <button type="button" class="secondary-btn" onclick="toggleCareService('${service._id}', ${!service.active})">${service.active ? "Deactivate" : "Activate"}</button>
+                </div>
+            </div>
+        </div>
+    `).join("");
+}
+
+function populateInvoiceCareServices() {
+    const select = document.getElementById("invoiceCareService");
+    if (!select) return;
+    const currentValue = select.value;
+    select.innerHTML = `<option value="">Custom invoice item</option>` +
+        careServices.filter(service => service.active).map(service =>
+            `<option value="${service._id}">${escapeHtml(service.name)} — ${formatCurrency(service.amount)}</option>`
+        ).join("");
+    if (careServices.some(service => service.active && String(service._id) === currentValue)) {
+        select.value = currentValue;
+    }
+}
+
+function editCareService(serviceId) {
+    const service = careServices.find(item => String(item._id) === String(serviceId));
+    if (!service) return;
+    editingCareServiceId = service._id;
+    document.getElementById("careServiceName").value = service.name;
+    document.getElementById("careServiceAmount").value = service.amount;
+    document.getElementById("careServiceDescription").value = service.description || "";
+    document.getElementById("careServiceSaveButton").textContent = "Save changes";
+    document.getElementById("careServiceCancelButton").style.display = "inline-block";
+}
+
+function cancelCareServiceEdit() {
+    editingCareServiceId = null;
+    const form = document.getElementById("careServiceForm");
+    if (form) form.reset();
+    const saveButton = document.getElementById("careServiceSaveButton");
+    const cancelButton = document.getElementById("careServiceCancelButton");
+    if (saveButton) saveButton.textContent = "Add care service";
+    if (cancelButton) cancelButton.style.display = "none";
+}
+
+async function toggleCareService(serviceId, active) {
+    try {
+        await authFetch(`${API_BASE}/care-services/${encodeURIComponent(serviceId)}`, {
+            method: "PATCH",
+            body: JSON.stringify({ active })
+        });
+        await loadCareServices();
+    } catch (err) {
+        console.error("Error updating care service:", err);
+        window.alert(err.message || "Unable to update care service.");
+    }
+}
+
+async function loadStripeConnectStatus() {
+    const status = document.getElementById("stripeConnectStatus");
+    const button = document.getElementById("connectStripeButton");
+    if (!currentUser || currentUser.role !== "admin" || !status || !button) return;
+    try {
+        const result = await authFetch(`${API_BASE}/stripe/connect/status`);
+        button.disabled = !result.configured;
+        if (!result.configured) {
+            status.textContent = "Stripe is not configured on the backend yet.";
+        } else if (result.connected) {
+            status.textContent = "Stripe is connected and ready to accept merchant payments.";
+        } else if (result.detailsSubmitted) {
+            status.textContent = "Stripe onboarding is submitted; finish any outstanding requirements in Stripe.";
+        } else {
+            status.textContent = "Connect a Stripe account to accept card payments directly for this merchant.";
+        }
+    } catch (err) {
+        button.disabled = true;
+        status.textContent = `Unable to check Stripe status: ${err.message}`;
+    }
+}
+
+async function startStripeConnect() {
+    const button = document.getElementById("connectStripeButton");
+    if (button) button.disabled = true;
+    try {
+        const result = await authFetch(`${API_BASE}/stripe/connect/onboarding`, { method: "POST" });
+        if (!result.url) throw new Error("Stripe did not return an onboarding link.");
+        window.location.assign(result.url);
+    } catch (err) {
+        console.error("Unable to start Stripe onboarding:", err);
+        window.alert(err.message || "Unable to start Stripe onboarding.");
+        if (button) button.disabled = false;
+    }
 }
 
 function openPayInvoicePanel() {
@@ -2551,7 +2691,7 @@ function renderInvoiceListInContainer(container, invoices, showResident = false,
                 </div>
             ` : ""}
             <div class="invoice-actions">
-                ${invoice.status === "pending" ? `<button type="button" class="primary-btn" onclick="payInvoice('${invoice._id}')">${(currentUser && currentUser.role === "poa") ? 'Pay' : 'Mark Paid'}</button>` : ""}
+                ${invoice.status === "pending" ? `<button type="button" class="primary-btn" onclick="payInvoice('${invoice._id}')">${(currentUser && currentUser.role === "poa") ? 'Pay with Stripe' : 'Mark Paid'}</button>` : ""}
             </div>
         `;
 
@@ -2680,134 +2820,15 @@ function openBillingClientInvoicePanel() {
 async function payBillingBalance() {
     if (!currentUser || currentUser.role !== "admin" || !currentBillingResidentId) return;
 
-    const pendingInvoices = billingInvoices.filter(invoice => {
-        const invoiceResidentId = invoice.residentId && typeof invoice.residentId === "object"
-            ? invoice.residentId._id
-            : invoice.residentId;
-        return String(invoiceResidentId) === String(currentBillingResidentId) && invoice.status === "pending";
-    });
-    const balance = pendingInvoices.reduce((sum, invoice) => sum + getInvoiceOutstandingAmount(invoice), 0);
-    if (!pendingInvoices.length || balance <= 0) return;
-
-    const modal = document.getElementById("billingPaymentModal");
-    const amountInput = document.getElementById("billingPaymentAmount");
-    const payerInput = document.getElementById("billingPayerName");
-    if (!modal || !amountInput) return;
-
-    amountInput.max = balance.toFixed(2);
-    amountInput.value = balance.toFixed(2);
-    if (payerInput) payerInput.value = "";
-    updateBillingPaymentFields();
-    modal.style.display = "flex";
-    amountInput.focus();
-}
-
-function updateBillingPaymentFields() {
-    const method = document.getElementById("billingPaymentMethod")?.value;
-    const cardFields = document.getElementById("billingCardFields");
-    const achFields = document.getElementById("billingAchFields");
-    const cardInputs = cardFields?.querySelectorAll("input") || [];
-    const achInputs = achFields?.querySelectorAll("input, select") || [];
-    const useAch = method === "bank";
-
-    if (cardFields) cardFields.style.display = useAch ? "none" : "grid";
-    if (achFields) achFields.style.display = useAch ? "grid" : "none";
-    cardInputs.forEach(input => {
-        input.disabled = useAch;
-        input.required = !useAch;
-        input.value = "";
-    });
-    achInputs.forEach(input => {
-        input.disabled = !useAch;
-        input.required = useAch && input.id !== "billingAchAccountType";
-        input.value = "";
-    });
-}
-
-function closeBillingPaymentModal() {
-    const modal = document.getElementById("billingPaymentModal");
-    const form = document.getElementById("billingPaymentForm");
-    const error = document.getElementById("billingPaymentError");
-    if (modal) modal.style.display = "none";
-    if (form) form.reset();
-    if (error) {
-        error.textContent = "";
-        error.style.display = "none";
-    }
-    updateBillingPaymentFields();
-}
-
-async function submitBillingBalancePayment(event) {
-    event.preventDefault();
-    const errorBox = document.getElementById("billingPaymentError");
-    const submitButton = document.getElementById("submitBillingPaymentButton");
-    const form = document.getElementById("billingPaymentForm");
-    if (!form || !currentBillingResidentId) return;
-
-    const amount = Number(document.getElementById("billingPaymentAmount")?.value);
-    const method = document.getElementById("billingPaymentMethod")?.value;
-    const payerName = document.getElementById("billingPayerName")?.value.trim() || "";
-    let lastFour = "";
-    if (method === "bank") {
-        const routing = document.getElementById("billingAchRouting")?.value.trim() || "";
-        const account = document.getElementById("billingAchAccount")?.value.trim() || "";
-        if (!/^\d{9}$/.test(routing) || !/^\d{4,17}$/.test(account)) {
-            if (errorBox) {
-                errorBox.textContent = "Enter a 9-digit test routing number and a 4-17 digit test account number.";
-                errorBox.style.display = "block";
-            }
-            return;
-        }
-        lastFour = account.slice(-4);
-    } else {
-        const cardNumber = document.getElementById("billingCardNumber")?.value.replace(/[\s-]/g, "") || "";
-        const expiry = document.getElementById("billingCardExpiry")?.value || "";
-        const securityCode = document.getElementById("billingCardCvv")?.value || "";
-        if (!/^\d{13,19}$/.test(cardNumber) || !expiry || !/^\d{3,4}$/.test(securityCode)) {
-            if (errorBox) {
-                errorBox.textContent = "Enter valid test card number, expiration date, and security code.";
-                errorBox.style.display = "block";
-            }
-            return;
-        }
-        lastFour = cardNumber.slice(-4);
-    }
-
-    if (!Number.isFinite(amount) || amount <= 0 || !payerName) {
-        if (errorBox) {
-            errorBox.textContent = "Enter a valid payment amount and payer name.";
-            errorBox.style.display = "block";
-        }
-        return;
-    }
-
-    if (errorBox) {
-        errorBox.textContent = "";
-        errorBox.style.display = "none";
-    }
-    if (submitButton) submitButton.disabled = true;
-
     try {
-        const result = await authFetch(`${API_BASE}/invoices/${encodeURIComponent(currentBillingResidentId)}/payments`, {
-            method: "POST",
-            body: JSON.stringify({
-                amount,
-                paymentMethod: method,
-                payerName,
-                lastFour
-            })
+        const result = await authFetch(`${API_BASE}/stripe/checkout/resident/${encodeURIComponent(currentBillingResidentId)}`, {
+            method: "POST"
         });
-        closeBillingPaymentModal();
-        await loadBillingPage();
-        window.alert(`Simulated payment recorded (${formatCurrency(result.amount)}). Reference: ${result.paymentReference}`);
+        if (!result.url) throw new Error("Stripe did not return a Checkout link.");
+        window.location.assign(result.url);
     } catch (err) {
-        console.error("Error recording simulated balance payment:", err);
-        if (errorBox) {
-            errorBox.textContent = err.message || "Unable to record simulated payment.";
-            errorBox.style.display = "block";
-        }
-    } finally {
-        if (submitButton) submitButton.disabled = false;
+        console.error("Unable to start Stripe Checkout:", err);
+        window.alert(err.message || "Unable to start Stripe Checkout.");
     }
 }
 
@@ -3031,11 +3052,15 @@ async function payInvoice(invoiceId) {
     if (!invoiceId) return;
 
     try {
-        const response = await fetch(`${API_BASE}/invoices/${invoiceId}/pay`, { method: "PATCH", headers: getAuthHeaders() });
-        if (!response.ok) {
-            const error = await response.json().catch(() => ({}));
-            throw new Error(error.error || "Unable to update invoice status");
+        if (currentUser && currentUser.role === "poa") {
+            const result = await authFetch(`${API_BASE}/stripe/checkout/invoice/${encodeURIComponent(invoiceId)}`, {
+                method: "POST"
+            });
+            if (!result.url) throw new Error("Stripe did not return a Checkout link.");
+            window.location.assign(result.url);
+            return;
         }
+        await authFetch(`${API_BASE}/invoices/${invoiceId}/pay`, { method: "PATCH" });
         if (document.getElementById("billingClientPage")?.style.display === "block") {
             await loadBillingPage();
             renderBillingClientDetails();
@@ -3517,6 +3542,24 @@ function deleteMedication(medicationId) {
 
 const addInvoiceForm = document.getElementById("addInvoiceForm");
 if (addInvoiceForm) {
+    const serviceSelect = document.getElementById("invoiceCareService");
+    if (serviceSelect) {
+        serviceSelect.addEventListener("change", function () {
+            const service = careServices.find(item => String(item._id) === this.value);
+            const descriptionInput = document.getElementById("invoiceDescription");
+            const amountInput = document.getElementById("invoiceAmount");
+            if (service) {
+                descriptionInput.value = service.name;
+                amountInput.value = Number(service.amount).toFixed(2);
+                descriptionInput.readOnly = true;
+                amountInput.readOnly = true;
+            } else {
+                descriptionInput.readOnly = false;
+                amountInput.readOnly = false;
+            }
+        });
+    }
+
     addInvoiceForm.addEventListener("submit", function (e) {
         e.preventDefault();
 
@@ -3528,6 +3571,7 @@ if (addInvoiceForm) {
 
         const invoiceData = {
             residentId,
+            careServiceId: document.getElementById("invoiceCareService")?.value || null,
             description: document.getElementById("invoiceDescription")?.value || "",
             amount: Number(document.getElementById("invoiceAmount")?.value || 0),
             dueDate: document.getElementById("invoiceDueDate")?.value || null,
@@ -3554,14 +3598,33 @@ if (addInvoiceForm) {
     });
 }
 
-const billingPaymentMethodSelect = document.getElementById("billingPaymentMethod");
-if (billingPaymentMethodSelect) {
-    billingPaymentMethodSelect.addEventListener("change", updateBillingPaymentFields);
-}
-
-const billingPaymentForm = document.getElementById("billingPaymentForm");
-if (billingPaymentForm) {
-    billingPaymentForm.addEventListener("submit", submitBillingBalancePayment);
+const careServiceForm = document.getElementById("careServiceForm");
+if (careServiceForm) {
+    careServiceForm.addEventListener("submit", async function (event) {
+        event.preventDefault();
+        const payload = {
+            name: document.getElementById("careServiceName").value,
+            description: document.getElementById("careServiceDescription").value,
+            amount: Number(document.getElementById("careServiceAmount").value)
+        };
+        const serviceId = editingCareServiceId;
+        try {
+            await authFetch(
+                serviceId
+                    ? `${API_BASE}/care-services/${encodeURIComponent(serviceId)}`
+                    : `${API_BASE}/care-services`,
+                {
+                    method: serviceId ? "PATCH" : "POST",
+                    body: JSON.stringify(payload)
+                }
+            );
+            cancelCareServiceEdit();
+            await loadCareServices();
+        } catch (err) {
+            console.error("Unable to save care service:", err);
+            window.alert(err.message || "Unable to save care service.");
+        }
+    });
 }
 
 const payInvoiceForm = document.getElementById("payInvoiceForm");

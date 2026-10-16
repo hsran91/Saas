@@ -22,6 +22,8 @@ const alertRoutes = require("../routes/alertRoutes");
 const medicationRoutes = require("../routes/medicationRoutes");
 const marRoutes = require("../routes/marRoutes");
 const invoiceRoutes = require("../routes/invoiceRoutes");
+const careServiceRoutes = require("../routes/careServiceRoutes");
+const stripeRoutes = require("../routes/stripeRoutes");
 const appointmentRoutes = require("../routes/appointmentRoutes");
 const dashboardRoutes = require("../routes/dashboardRoutes");
 const auth = require("../middleware/auth");
@@ -119,6 +121,7 @@ app.use(helmet({
   contentSecurityPolicy: false
 }));
 app.use(cors(corsOptions));
+app.post("/stripe/webhook", globalApiLimiter, express.raw({ type: "application/json", limit: JSON_BODY_LIMIT }), stripeRoutes.handleWebhook);
 app.use(express.json({ limit: JSON_BODY_LIMIT }));
 app.use(express.urlencoded({ extended: true, limit: URLENCODED_BODY_LIMIT }));
 
@@ -181,6 +184,8 @@ app.use("/residents", residentRoutes);
 app.use("/medications", medicationRoutes);
 app.use("/mar", marRoutes);
 app.use("/invoices", invoiceRoutes);
+app.use("/care-services", careServiceRoutes);
+app.use("/stripe", stripeRoutes);
 app.use("/appointments", appointmentRoutes);
 app.use("/dashboard", dashboardRoutes);
 app.use("/alerts", alertRoutes);

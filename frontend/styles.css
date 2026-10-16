@@ -1267,10 +1267,6 @@ body {
         width: 100%;
     }
 
-    .billing-payment-fields {
-        grid-template-columns: 1fr;
-    }
-
     .appointment-calendar-day {
         min-height: 88px;
         padding: 4px;
@@ -1379,6 +1375,11 @@ body {
 
 .billing-overall-balance small {
     color: #9ca3af;
+}
+
+.billing-payment-note {
+    max-width: 320px;
+    line-height: 1.4;
 }
 
 .billing-balance-actions {
@@ -1920,29 +1921,6 @@ body {
     padding: 16px 18px;
     width: 420px;
     max-width: 95vw;
-}
-
-.billing-payment-modal {
-    width: 620px;
-    max-height: 90vh;
-    overflow-y: auto;
-}
-
-.billing-simulation-notice {
-    margin-bottom: 14px;
-    padding: 10px 12px;
-    color: #fde68a;
-    background: rgba(120, 53, 15, 0.25);
-    border: 1px solid rgba(245, 158, 11, 0.35);
-    border-radius: 8px;
-    font-size: 13px;
-    line-height: 1.5;
-}
-
-.billing-payment-fields {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px 12px;
 }
 
 .modal-header {

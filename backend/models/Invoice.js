@@ -41,6 +41,11 @@ const InvoiceSchema = new mongoose.Schema({
     ref: "Resident",
     required: true,
   },
+  careServiceId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "CareService",
+    default: null,
+  },
   description: {
     type: String,
     required: true,

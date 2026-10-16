@@ -44,6 +44,26 @@ test("Invoice validator enforces payment fields all-or-none", () => {
   );
 });
 
+test("Invoice validator accepts an optional care service reference", () => {
+  const serviceId = "507f1f77bcf86cd799439011";
+  const payload = validateAndNormalizeInvoiceCreatePayload({
+    residentId: validResidentId,
+    careServiceId: serviceId,
+    description: "Daily care",
+    amount: 100
+  });
+  assert.equal(payload.careServiceId, serviceId);
+  assert.throws(
+    () => validateAndNormalizeInvoiceCreatePayload({
+      residentId: validResidentId,
+      careServiceId: "invalid",
+      description: "Daily care",
+      amount: 100
+    }),
+    /careServiceId must be a valid id/
+  );
+});
+
 test("Invoice validator rejects unsupported fields and invalid residentId", () => {
   assert.throws(
     () => validateAndNormalizeInvoiceCreatePayload({

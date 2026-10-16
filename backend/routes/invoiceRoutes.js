@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const router = express.Router();
 const Invoice = require("../models/Invoice");
 const Resident = require("../models/Resident");
+const CareService = require("../models/CareService");
 const auth = require("../middleware/auth");
 const { getPagination, setPaginationHeaders } = require("../utils/pagination");
 const { logRequest, serializeError } = require("../utils/logger");
@@ -11,6 +12,7 @@ const { runWriteTransaction } = require("../services/transactions");
 
 const ALLOWED_INVOICE_CREATE_FIELDS = new Set([
   "residentId",
+  "careServiceId",
   "description",
   "amount",
   "dueDate",
@@ -114,6 +116,7 @@ function validateAndNormalizeInvoiceCreatePayload(body) {
   }
 
   const residentId = typeof body.residentId === "string" ? body.residentId.trim() : "";
+  const careServiceId = typeof body.careServiceId === "string" ? body.careServiceId.trim() : "";
   const description = typeof body.description === "string" ? body.description.trim() : "";
   const amount = Number(body.amount);
   const notes = normalizeOptionalText(body.notes, "notes", 2000) || "";
@@ -128,6 +131,9 @@ function validateAndNormalizeInvoiceCreatePayload(body) {
 
   if (!mongoose.Types.ObjectId.isValid(residentId)) {
     throw new Error("residentId must be a valid id");
+  }
+  if (careServiceId && !mongoose.Types.ObjectId.isValid(careServiceId)) {
+    throw new Error("careServiceId must be a valid id");
   }
 
   if (description.length > 200) {
@@ -159,6 +165,7 @@ function validateAndNormalizeInvoiceCreatePayload(body) {
 
   return {
     residentId,
+    careServiceId: careServiceId || null,
     description,
     amount,
     dueDate,
@@ -177,6 +184,7 @@ router.post("/", auth.requireRole("admin", "poa"), async (req, res) => {
     const payload = validateAndNormalizeInvoiceCreatePayload(req.body);
     const {
       residentId,
+      careServiceId,
       description,
       amount,
       dueDate,
@@ -196,11 +204,25 @@ router.post("/", auth.requireRole("admin", "poa"), async (req, res) => {
       return res.status(403).json({ error: "Access denied" });
     }
 
+    let invoiceDescription = description;
+    let invoiceAmount = amount;
+    if (careServiceId) {
+      const careService = await CareService.findOne({
+        _id: careServiceId,
+        tenantId,
+        active: true
+      }).select("name amount").lean();
+      if (!careService) return res.status(404).json({ error: "Active care service not found" });
+      invoiceDescription = careService.name;
+      invoiceAmount = careService.amount;
+    }
+
     const invoice = new Invoice({
       tenantId,
       residentId,
-      description,
-      amount,
+      careServiceId,
+      description: invoiceDescription,
+      amount: invoiceAmount,
       dueDate,
       notes,
       paymentMethod,
@@ -327,7 +349,7 @@ router.get("/:residentId", auth.requireRole("admin", "poa"), auth.requirePoaResi
 });
 
 // Mark invoice paid
-router.patch("/:invoiceId/pay", auth.requireRole("admin", "poa"), async (req, res) => {
+router.patch("/:invoiceId/pay", auth.requireRole("admin"), async (req, res) => {
   try {
     if (req.body && typeof req.body === "object" && Object.keys(req.body).length > 0) {
       return res.status(400).json({ error: "This endpoint does not accept a request body" });
@@ -340,10 +362,6 @@ router.patch("/:invoiceId/pay", auth.requireRole("admin", "poa"), async (req, re
     const invoice = await Invoice.findOne({ _id: req.params.invoiceId, tenantId: req.tenantId });
     if (!invoice) {
       return res.status(404).json({ error: "Invoice not found" });
-    }
-
-    if (req.user.role === "poa" && String(req.user.residentId) !== String(invoice.residentId)) {
-      return res.status(403).json({ error: "Access denied" });
     }
 
     const paidCents = getInvoicePaidCents(invoice);
